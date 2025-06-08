@@ -16,7 +16,7 @@ const TimeGreetings: React.FC<TimeGreetingsProps> = ({ user, className }) => {
     } else if (currentHour >= 17 && currentHour < 21) {
       return 'Good Evening';
     } else {
-      return 'Good Night';
+      return 'Hello Night Owl';
     }
   };
 
