@@ -48,13 +48,13 @@ export default function PromptBox({ onPromptsChange }: PromptBoxProps) {
   };
 
   return (
-    <div className="w-full max-w-4xl mx-auto">
-      <div className="flex gap-4 justify-center mb-8">
+    <div className="w-full max-w-4xl mx-auto px-4">
+      <div className="flex flex-wrap gap-2 sm:gap-3 lg:gap-4 justify-center mb-6 sm:mb-8">
         {Object.keys(promptSuggestions).map((prompt) => (
           <button
             key={prompt}
             onClick={() => handlePromptClick(prompt)}
-            className={`px-8 py-3 cursor-pointer rounded-full text-xs font-medium transition-all duration-200 ${
+            className={`px-4 sm:px-6 lg:px-8 py-2 sm:py-3 cursor-pointer rounded-full text-xs font-medium transition-all duration-200 ${
               selectedPrompt === prompt
                 ? "bg-black text-white"
                 : "bg-gray-100 text-gray-700 hover:bg-gray-200"
