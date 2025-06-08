@@ -45,7 +45,7 @@ export default function GradientBall() {
   return (
     <div
       ref={gradientRef}
-      className="w-20 h-20 rounded-full opacity-80 dark:opacity-90"
+      className="w-16 h-16 sm:w-20 sm:h-20 rounded-full opacity-80 dark:opacity-90"
       style={{
         backgroundImage:
           "linear-gradient(45deg, hsl(240, 100%, 70%), hsl(320, 100%, 80%), hsl(60, 100%, 85%), hsl(180, 100%, 75%))",
