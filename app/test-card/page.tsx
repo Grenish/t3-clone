@@ -1,4 +1,6 @@
+import ImageLoadingCard from "@/components/image-loading-card";
 import ProductCard from "@/components/product-card";
+import StockCard from "@/components/stock-card";
 import { WeatherCard } from "@/components/weather-card";
 
 export default function TestCard() {
@@ -26,11 +28,39 @@ export default function TestCard() {
     discount: 8,
   };
 
+  const sampleStockData = {
+    name: "Apple Inc.",
+    ticker: "AAPL",
+    price: 175.64,
+    change: -1.23,
+    changePercent: -0.7,
+    exchange: "NASDAQ",
+    currency: "USD",
+    chartData: [180, 178, 176, 175.64, 174, 175.2, 175.64],
+    volume: 45234567,
+    marketCap: "2.7T",
+    dayRange: { low: 174.32, high: 177.89 },
+    peRatio: 28.45,
+    dividendYield: 0.52,
+    sector: "Technology",
+  };
+
   return (
-    <div className="w-full h-screen flex flex-col items-center justify-center ">
-      {/* <WeatherCard data={sampleWeatherData} /> */}
-      <ProductCard {...sampleProductData} />
+    <div className="w-full h-screen p-8">
+      <div className="h-full grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="border border-gray-300 rounded-lg p-6 flex items-center justify-center">
+          <WeatherCard data={sampleWeatherData} />
+        </div>
+        <div className="border border-gray-300 rounded-lg p-6 flex items-center justify-center">
+          <ProductCard {...sampleProductData} />
+        </div>
+        <div className="border border-gray-300 rounded-lg p-6 flex items-center justify-center">
+          <StockCard stock={sampleStockData} />
+        </div>
+        <div className="border border-gray-300 rounded-lg p-6 flex items-center justify-center">
+          <ImageLoadingCard />
+        </div>
+      </div>
     </div>
   );
 }
-
