@@ -1,8 +1,8 @@
-'use client';
+"use client";
 
-import React from 'react';
-import Image from 'next/image';
-import { Star, StarHalf } from 'lucide-react';
+import React from "react";
+import Image from "next/image";
+import { Star, StarHalf } from "lucide-react";
 
 interface ProductCardProps {
   id: string;
@@ -14,7 +14,7 @@ interface ProductCardProps {
   reviewCount?: number;
   imageUrl: string;
   imageAlt?: string;
-  platform: 'amazon' | 'flipkart' | 'ebay' | 'other';
+  platform: "amazon" | "flipkart" | "ebay" | "other";
   discount?: number;
   onClick?: (id: string) => void;
   className?: string;
@@ -22,34 +22,34 @@ interface ProductCardProps {
 
 const platformConfig = {
   amazon: {
-    color: 'bg-orange-50 border-orange-200',
-    textColor: 'text-orange-700',
-    dotColor: 'bg-orange-400',
-    label: 'Amazon'
+    color: "bg-orange-50 border-orange-200",
+    textColor: "text-orange-700",
+    dotColor: "bg-orange-400",
+    label: "Amazon",
   },
   flipkart: {
-    color: 'bg-blue-50 border-blue-200',
-    textColor: 'text-blue-700',
-    dotColor: 'bg-blue-400',
-    label: 'Flipkart'
+    color: "bg-blue-50 border-blue-200",
+    textColor: "text-blue-700",
+    dotColor: "bg-blue-400",
+    label: "Flipkart",
   },
   ebay: {
-    color: 'bg-yellow-50 border-yellow-200',
-    textColor: 'text-yellow-700',
-    dotColor: 'bg-yellow-400',
-    label: 'eBay'
+    color: "bg-yellow-50 border-yellow-200",
+    textColor: "text-yellow-700",
+    dotColor: "bg-yellow-400",
+    label: "eBay",
   },
   other: {
-    color: 'bg-gray-50 border-gray-200',
-    textColor: 'text-gray-700',
-    dotColor: 'bg-gray-400',
-    label: 'Store'
-  }
+    color: "bg-gray-50 border-gray-200",
+    textColor: "text-gray-700",
+    dotColor: "bg-gray-400",
+    label: "Store",
+  },
 };
 
-const StarRating: React.FC<{ rating: number; size?: number }> = ({ 
-  rating, 
-  size = 12 
+const StarRating: React.FC<{ rating: number; size?: number }> = ({
+  rating,
+  size = 12,
 }) => {
   const stars = [];
   const fullStars = Math.floor(rating);
@@ -58,28 +58,18 @@ const StarRating: React.FC<{ rating: number; size?: number }> = ({
   for (let i = 0; i < 5; i++) {
     if (i < fullStars) {
       stars.push(
-        <Star 
-          key={i} 
-          size={size} 
-          className="fill-amber-400 text-amber-400" 
-        />
+        <Star key={i} size={size} className="fill-amber-400 text-amber-400" />
       );
     } else if (i === fullStars && hasHalfStar) {
       stars.push(
-        <StarHalf 
-          key={i} 
-          size={size} 
-          className="fill-amber-400 text-amber-400" 
+        <StarHalf
+          key={i}
+          size={size}
+          className="fill-amber-400 text-amber-400"
         />
       );
     } else {
-      stars.push(
-        <Star 
-          key={i} 
-          size={size} 
-          className="text-gray-200" 
-        />
-      );
+      stars.push(<Star key={i} size={size} className="text-gray-200" />);
     }
   }
 
@@ -91,7 +81,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({
   title,
   price,
   originalPrice,
-  currency = '$',
+  currency = "$",
   rating,
   reviewCount,
   imageUrl,
@@ -99,7 +89,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({
   platform,
   discount,
   onClick,
-  className = ''
+  className = "",
 }) => {
   const platformStyle = platformConfig[platform];
 
@@ -108,7 +98,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' || e.key === ' ') {
+    if (e.key === "Enter" || e.key === " ") {
       e.preventDefault();
       onClick?.(id);
     }
@@ -118,11 +108,10 @@ export const ProductCard: React.FC<ProductCardProps> = ({
     <div
       className={`
         group relative bg-white rounded-lg border-0
-        shadow-[0_1px_10px_rgba(0,0,0,0.03)] hover:shadow-[0_4px_20px_rgba(0,0,0,0.08)]
-        transition-all duration-300 ease-out
-        hover:-translate-y-0.5 cursor-pointer overflow-hidden
+        shadow-[0_1px_10px_rgba(0,0,0,0.03)] transition-all
+        duration-300 ease-out cursor-pointer overflow-hidden
         focus-within:ring-2 focus-within:ring-blue-500/20 focus-within:ring-offset-1
-        w-full max-w-[280px] sm:max-w-[240px] md:max-w-[220px] lg:max-w-[200px]
+        w-full max-w-[280px] sm:max-w-[240px] md:max-w-[220px] lg:max-w-[280px]
         ${className}
       `}
       onClick={handleClick}
@@ -156,16 +145,22 @@ export const ProductCard: React.FC<ProductCardProps> = ({
       <div className="p-2.5 space-y-1.5">
         {/* Platform Badge */}
         <div className="flex items-center justify-between">
-          <div className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full border ${platformStyle.color}`}>
-            <div className={`w-0.5 h-0.5 rounded-full ${platformStyle.dotColor}`} />
-            <span className={`text-[10px] font-medium ${platformStyle.textColor}`}>
+          <div
+            className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full border ${platformStyle.color}`}
+          >
+            <div
+              className={`w-0.5 h-0.5 rounded-full ${platformStyle.dotColor}`}
+            />
+            <span
+              className={`text-[10px] font-medium ${platformStyle.textColor}`}
+            >
               {platformStyle.label}
             </span>
           </div>
         </div>
 
         {/* Product Title */}
-        <h3 
+        <h3
           className="font-medium text-gray-800 line-clamp-2 text-xs leading-4 group-hover:text-gray-900 transition-colors"
           title={title}
         >
@@ -181,7 +176,11 @@ export const ProductCard: React.FC<ProductCardProps> = ({
             </span>
             {reviewCount && (
               <span className="text-[9px] text-gray-500">
-                ({reviewCount > 999 ? `${Math.floor(reviewCount/1000)}k` : reviewCount})
+                (
+                {reviewCount > 999
+                  ? `${Math.floor(reviewCount / 1000)}k`
+                  : reviewCount}
+                )
               </span>
             )}
           </div>
@@ -190,11 +189,13 @@ export const ProductCard: React.FC<ProductCardProps> = ({
         {/* Pricing */}
         <div className="flex items-baseline gap-1.5">
           <span className="text-sm font-bold text-gray-900">
-            {currency}{price.toFixed(2)}
+            {currency}
+            {price.toFixed(2)}
           </span>
           {originalPrice && originalPrice > price && (
             <span className="text-[10px] text-gray-400 line-through">
-              {currency}{originalPrice.toFixed(2)}
+              {currency}
+              {originalPrice.toFixed(2)}
             </span>
           )}
         </div>
