@@ -241,6 +241,18 @@ export default function Home() {
                     placeholder="Ask me anything..."
                     value={textareaValue}
                     onChange={setTextareaValue}
+                    onSubmit={() => {
+                      if (textareaValue.trim() && !isTransitioning) {
+                        const event = new Event("submit", {
+                          bubbles: true,
+                          cancelable: true,
+                        });
+                        const form = document.querySelector("form");
+                        if (form) {
+                          form.dispatchEvent(event);
+                        }
+                      }
+                    }}
                     className="py-3 text-base"
                   />
 
