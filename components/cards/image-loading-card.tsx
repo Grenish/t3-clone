@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { gsap } from 'gsap';
 
 interface ImageLoadingCardProps {
@@ -39,6 +40,12 @@ export default function ImageLoadingCard({
   const [showFullscreen, setShowFullscreen] = useState(false);
   const [imageLoadError, setImageLoadError] = useState(false);
   const [imageDimensions, setImageDimensions] = useState<{width: number; height: number} | null>(null);
+  const [mounted, setMounted] = useState(false);
+
+  // Ensure component is mounted for portal
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   useEffect(() => {
     // Check for reduced motion preference
@@ -50,6 +57,26 @@ export default function ImageLoadingCard({
     };
     
     mediaQuery.addEventListener('change', handleChange);
+
+    // Prevent body scroll when fullscreen is open
+    if (showFullscreen) {
+      document.body.style.overflow = 'hidden';
+      document.documentElement.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = 'unset';
+      document.documentElement.style.overflow = 'unset';
+    }
+
+    // Handle escape key
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && showFullscreen) {
+        setShowFullscreen(false);
+      }
+    };
+
+    if (showFullscreen) {
+      document.addEventListener('keydown', handleEscape);
+    }
 
     // Only animate when generating
     if (isGenerating && !prefersReducedMotion && cardRef.current && wave1Ref.current && wave2Ref.current && wave3Ref.current) {
@@ -147,13 +174,21 @@ export default function ImageLoadingCard({
         gsap.killTweensOf(cardRef.current);
         gsap.killTweensOf(dotsRef.current);
         mediaQuery.removeEventListener('change', handleChange);
+        document.removeEventListener('keydown', handleEscape);
+        // Reset body scroll
+        document.body.style.overflow = 'unset';
+        document.documentElement.style.overflow = 'unset';
       };
     } else {
       return () => {
         mediaQuery.removeEventListener('change', handleChange);
+        document.removeEventListener('keydown', handleEscape);
+        // Reset body scroll
+        document.body.style.overflow = 'unset';
+        document.documentElement.style.overflow = 'unset';
       };
     }
-  }, [isGenerating, prefersReducedMotion]);
+  }, [isGenerating, prefersReducedMotion, showFullscreen]);
 
   const downloadImage = async () => {
     if (!imageUrl) return;
@@ -443,58 +478,84 @@ export default function ImageLoadingCard({
               Download
             </button>
           </div>
-        </div>
+  </div>
 
-        {/* Fullscreen Modal */}
-        {showFullscreen && (
-          <div 
-            className="fixed inset-0 z-50 bg-black bg-opacity-95 flex items-center justify-center p-4" 
-            onClick={() => setShowFullscreen(false)}
-          >
-            <div className="relative max-w-7xl max-h-full w-full h-full flex items-center justify-center">
-              <img
-                src={imageUrl}
-                alt={prompt || "Generated image"}
-                className="max-w-full max-h-full object-contain rounded-lg"
-                onError={handleImageError}
-                onClick={(e) => e.stopPropagation()}
-              />
-              
-              {/* Close Button */}
-              <button
-                onClick={() => setShowFullscreen(false)}
-                className="absolute top-6 right-6 text-white bg-black/50 hover:bg-black/70 p-3 rounded-full transition-colors z-10"
-                title="Close fullscreen"
-              >
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-              
-              {/* Prompt Display */}
-              {prompt && (
-                <div className="absolute bottom-6 left-6 right-6 bg-black/70 backdrop-blur-sm rounded-lg p-4 text-center">
-                  <p className="text-white text-sm">{prompt}</p>
-                </div>
-              )}
-
-              {/* Download Button in Fullscreen */}
-              <button 
-                onClick={(e) => {
-                  e.stopPropagation();
-                  downloadImage();
-                }}
-                className="absolute top-6 left-6 bg-white/20 backdrop-blur-sm hover:bg-white/30 border border-white/30 text-white px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 flex items-center gap-2"
-                title="Download image"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                </svg>
-                Download
-              </button>
-            </div>
+  {/* Fullscreen Modal */}
+  {showFullscreen && imageUrl && mounted && createPortal(
+    <div 
+      className="fixed inset-0 bg-black bg-opacity-95 flex items-center justify-center p-4" 
+      style={{ 
+        zIndex: 999999,
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        width: '100vw',
+        height: '100vh'
+      }}
+      onClick={() => setShowFullscreen(false)}
+    >
+      <div 
+        className="relative w-full h-full flex items-center justify-center"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <img
+          src={imageUrl}
+          alt={prompt || "Generated image"}
+          className="max-w-full max-h-full object-contain rounded-lg shadow-2xl"
+          onError={handleImageError}
+          style={{ 
+            maxWidth: '95vw', 
+            maxHeight: '95vh',
+            objectFit: 'contain'
+          }}
+        />
+        
+        {/* Close Button */}
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            setShowFullscreen(false);
+          }}
+          className="absolute top-4 right-4 text-white bg-black/50 hover:bg-black/70 p-3 rounded-full transition-colors duration-200 backdrop-blur-sm border border-white/20 z-10"
+          title="Close fullscreen (ESC)"
+        >
+          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+        
+        {/* Prompt Display */}
+        {prompt && (
+          <div className="absolute bottom-4 left-4 right-4 bg-black/70 backdrop-blur-sm rounded-lg p-4 text-center max-w-4xl mx-auto">
+            <p className="text-white text-sm leading-relaxed">{prompt}</p>
           </div>
         )}
+
+        {/* Download Button in Fullscreen */}
+        <button 
+          onClick={(e) => {
+            e.stopPropagation();
+            downloadImage();
+          }}
+          className="absolute top-4 left-4 bg-white/20 backdrop-blur-sm hover:bg-white/30 border border-white/30 text-white px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 flex items-center gap-2"
+          title="Download image"
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+          </svg>
+          Download
+        </button>
+
+        {/* Instructions */}
+        <div className="absolute top-4 left-1/2 transform -translate-x-1/2 bg-black/50 backdrop-blur-sm rounded-lg px-4 py-2 text-white text-sm">
+          Press ESC or click outside to close
+        </div>
+      </div>
+    </div>,
+    document.body
+  )}
       </div>
     );
   }
