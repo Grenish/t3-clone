@@ -6,6 +6,7 @@ interface AutoResizeTextareaProps {
   placeholder?: string;
   className?: string;
   onChange?: (value: string) => void;
+  onSubmit?: () => void;
   value?: string;
 }
 
@@ -13,6 +14,7 @@ export default function AutoResizeTextarea({
   placeholder = "Type your message here...",
   className = "",
   onChange,
+  onSubmit,
   value,
 }: AutoResizeTextareaProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -34,11 +36,19 @@ export default function AutoResizeTextarea({
     onChange?.(e.target.value);
   };
 
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      onSubmit?.();
+    }
+  };
+
   return (
     <textarea
       ref={textareaRef}
       value={value}
       onChange={handleChange}
+      onKeyDown={handleKeyDown}
       placeholder={placeholder}
       className={`w-full text-sm resize-none overflow-hidden min-h-[50px] max-h-[200px] rounded-lg outline-none border-none ${className}`}
       rows={1}
