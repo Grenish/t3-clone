@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { Search, Cloud, User, ChevronRight } from "lucide-react";
+import { Cloud, User, ChevronRight } from "lucide-react";
 
 interface ToolsMenuProps {
   isOpen: boolean;
@@ -73,14 +73,6 @@ export default function ToolsMenu({ isOpen, onClose, onToolSelect, buttonRef }: 
       ref={menuRef}
       className="absolute bottom-full mb-2 left-0 bg-white rounded-xl shadow-xl border border-gray-100 py-2 min-w-[200px] z-50"
     >
-      <button
-        onClick={() => handleToolClick("Search Web")}
-        className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-gray-50 transition-colors text-sm"
-      >
-        <Search className="w-5 h-5 text-gray-500" />
-        <span className="text-gray-700 font-medium">Search Web</span>
-      </button>
-      
       <button
         onClick={() => handleToolClick("Weather")}
         className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-gray-50 transition-colors text-sm"
