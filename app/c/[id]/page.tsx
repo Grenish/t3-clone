@@ -6,6 +6,7 @@ import { useState, useEffect, useRef } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useChat } from "ai/react";
 import { gsap } from "gsap";
+import { useTheme } from "@/util/theme-switcher";
 import PageTransition from "@/components/page-transition";
 import AutoResizeTextarea from "@/components/auto-resize-textarea";
 import Tooltip from "@/components/tooltip";
@@ -48,11 +49,13 @@ export default function ChatPage() {
   const [showToolsMenu, setShowToolsMenu] = useState(false);
   const [isTransitioningBack, setIsTransitioningBack] = useState(false);
   const [isFromTransition, setIsFromTransition] = useState(false);
+  const [selectedPersona, setSelectedPersona] = useState<string | null>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const headerRef = useRef<HTMLDivElement>(null);
   const inputContainerRef = useRef<HTMLDivElement>(null);
   const addButtonRef = useRef<HTMLButtonElement>(null!);
   const toolsButtonRef = useRef<HTMLButtonElement>(null!);
+  const { isDarkMode } = useTheme();
 
   const {
     messages,
@@ -67,36 +70,67 @@ export default function ChatPage() {
     headers: {
       "x-api-key": process.env.NEXT_PUBLIC_GOOGLE_API_KEY || "",
     },
+    body: {
+      persona: selectedPersona,
+    },
   });
 
   // Check if coming from transition
   useEffect(() => {
     const transition = searchParams.get("transition");
+    const persona = searchParams.get("persona");
+
+    if (persona) {
+      setSelectedPersona(persona);
+      // Set the selected tool to maintain consistency with home page
+      setSelectedTool({ tool: "persona", persona: persona });
+    }
+
     if (transition === "true") {
       setIsFromTransition(true);
 
-      // Animate header in from top
+      // Set initial positions without animation
       if (headerRef.current) {
-        gsap.fromTo(
-          headerRef.current,
-          { y: -80, opacity: 0 },
-          { y: 0, opacity: 1, duration: 0.5, ease: "power2.out" }
-        );
+        gsap.set(headerRef.current, { y: -80, opacity: 0 });
       }
-
-      // Ensure input container is at natural bottom position
-      if (inputContainerRef.current) {
-        gsap.set(inputContainerRef.current, { clearProps: "all" });
-      }
-
-      // Animate messages container in
       if (messagesContainerRef.current) {
-        gsap.fromTo(
-          messagesContainerRef.current,
-          { opacity: 0, y: 20 },
-          { opacity: 1, y: 0, duration: 0.4, ease: "power2.out", delay: 0.2 }
-        );
+        gsap.set(messagesContainerRef.current, { opacity: 0, y: 20 });
       }
+
+      // Ensure input container starts at its natural position
+      if (inputContainerRef.current) {
+        gsap.set(inputContainerRef.current, { 
+          clearProps: "all",
+          position: "relative",
+          bottom: "auto",
+          left: "auto", 
+          right: "auto"
+        });
+      }
+
+      // Small delay to ensure DOM is ready, then animate in
+      setTimeout(() => {
+        // Animate header in from top
+        if (headerRef.current) {
+          gsap.to(headerRef.current, {
+            y: 0,
+            opacity: 1,
+            duration: 0.5,
+            ease: "power2.out"
+          });
+        }
+
+        // Animate messages container in
+        if (messagesContainerRef.current) {
+          gsap.to(messagesContainerRef.current, {
+            opacity: 1,
+            y: 0,
+            duration: 0.4,
+            ease: "power2.out",
+            delay: 0.2
+          });
+        }
+      }, 50);
 
       // Clean up URL
       const url = new URL(window.location.href);
@@ -105,7 +139,7 @@ export default function ChatPage() {
     }
   }, [searchParams]);
 
-  // Get initial message from URL params or localStorage
+  // Get initial message from URL params
   useEffect(() => {
     if (hasInitialized) return;
 
@@ -229,10 +263,15 @@ export default function ChatPage() {
 
   const handleToolSelect = (tool: string, persona?: string) => {
     setSelectedTool({ tool, persona });
+    if (persona) {
+      setSelectedPersona(persona);
+    }
   };
 
   const handleRemoveTool = () => {
     setSelectedTool(null);
+    // Clear persona when removing tool
+    setSelectedPersona(null);
   };
 
   const getDisplayFileName = (fileName: string) => {
@@ -335,7 +374,17 @@ export default function ChatPage() {
               peRatio: result.peRatio,
               dividendYield: result.dividendYield,
               sector: result.sector,
+              industry: result.industry,
+              description: result.description,
               chartData: result.chartData,
+              previousClose: result.previousClose,
+              weekHigh52: result.weekHigh52,
+              weekLow52: result.weekLow52,
+              beta: result.beta,
+              eps: result.eps,
+              bookValue: result.bookValue,
+              priceToBook: result.priceToBook,
+              lastUpdated: result.lastUpdated,
               error: result.error,
             }}
           />
@@ -396,21 +445,35 @@ export default function ChatPage() {
 
   return (
     <PageTransition skipAnimation={isFromTransition}>
-      <div className="flex flex-col h-screen bg-gray-50">
+      <div className={`flex flex-col h-screen ${
+        isDarkMode 
+          ? 'bg-gradient-to-b from-[#1B1B1B] to-[#003153]' 
+          : 'bg-gradient-to-b from-[#fdfbfb] to-[#ebedee]'
+      }`}>
         {/* Header */}
         <div
           ref={headerRef}
-          className="bg-white border-b border-gray-200 px-4 py-3"
+          className={`border-b px-4 py-3 ${
+            isDarkMode
+              ? 'bg-gray-800 border-gray-700'
+              : 'bg-white border-gray-200'
+          }`}
         >
           <div className="max-w-4xl mx-auto flex items-center gap-3">
             <button
               onClick={handleBackToHome}
               disabled={isTransitioningBack}
-              className="p-2 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50"
+              className={`p-2 rounded-lg transition-colors disabled:opacity-50 ${
+                isDarkMode
+                  ? 'hover:bg-gray-700 text-gray-300'
+                  : 'hover:bg-gray-100 text-gray-600'
+              }`}
             >
-              <ArrowLeft className="w-5 h-5 text-gray-600" />
+              <ArrowLeft className="w-5 h-5" />
             </button>
-            <h1 className="text-lg font-semibold text-gray-900">T3 Chat</h1>
+            <h1 className={`text-lg font-semibold ${
+              isDarkMode ? 'text-white' : 'text-gray-900'
+            }`}>T3 Chat</h1>
           </div>
         </div>
 
@@ -428,12 +491,20 @@ export default function ChatPage() {
                 }`}
               >
                 {message.role === "user" ? (
-                  <div className="max-w-2xl px-4 py-3 rounded-2xl bg-gray-900 text-white">
+                  <div className={`max-w-2xl px-4 py-3 rounded-2xl ${
+                    isDarkMode
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-gray-900 text-white'
+                  }`}>
                     <MessageContent content={message.content} isUser={true} />
                   </div>
                 ) : (
                   <div className="w-full group">
-                    <MessageContent content={message.content} isUser={false} />
+                    <div className={`${
+                      isDarkMode ? 'text-gray-100' : 'text-gray-900'
+                    }`}>
+                      <MessageContent content={message.content} isUser={false} />
+                    </div>
 
                     {/* Render tool invocations */}
                     {message.toolInvocations?.map(
@@ -453,10 +524,14 @@ export default function ChatPage() {
                             message.id || `${index}`
                           )
                         }
-                        className={`p-1.5 hover:bg-gray-100 rounded-md transition-all duration-200 cursor-pointer transform hover:scale-110 active:scale-95 ${
+                        className={`p-1.5 rounded-md transition-all duration-200 cursor-pointer transform hover:scale-110 active:scale-95 ${
                           copiedMessageId === (message.id || `${index}`)
-                            ? "bg-green-100 text-green-600"
-                            : ""
+                            ? isDarkMode 
+                              ? "bg-green-900/30 text-green-400" 
+                              : "bg-green-100 text-green-600"
+                            : isDarkMode
+                              ? "hover:bg-gray-700 text-gray-400"
+                              : "hover:bg-gray-100 text-gray-600"
                         }`}
                         title={
                           copiedMessageId === (message.id || `${index}`)
@@ -464,38 +539,44 @@ export default function ChatPage() {
                             : "Copy"
                         }
                       >
-                        <Copy
-                          className={`w-4 h-4 text-gray-600 transition-all duration-200 ${
-                            copiedMessageId === (message.id || `${index}`)
-                              ? "text-green-600 scale-110"
-                              : ""
-                          }`}
-                        />
+                        <Copy className="w-4 h-4 transition-all duration-200" />
                       </button>
                       <button
                         onClick={() => handleRetryMessage(index)}
-                        className="p-1.5 hover:bg-gray-100 rounded-md transition-all duration-200 cursor-pointer transform hover:scale-110 active:scale-95 hover:rotate-180"
+                        className={`p-1.5 rounded-md transition-all duration-200 cursor-pointer transform hover:scale-110 active:scale-95 hover:rotate-180 ${
+                          isDarkMode
+                            ? 'hover:bg-gray-700 text-gray-400'
+                            : 'hover:bg-gray-100 text-gray-600'
+                        }`}
                         title="Retry"
                       >
-                        <RotateCcw className="w-4 h-4 text-gray-600 transition-transform duration-300" />
+                        <RotateCcw className="w-4 h-4 transition-transform duration-300" />
                       </button>
                       <button
                         onClick={() =>
                           handleFeedback(message.id || `${index}`, true)
                         }
-                        className="p-1.5 hover:bg-green-50 hover:text-green-600 rounded-md transition-all duration-200 cursor-pointer transform hover:scale-110 active:scale-95"
+                        className={`p-1.5 rounded-md transition-all duration-200 cursor-pointer transform hover:scale-110 active:scale-95 ${
+                          isDarkMode
+                            ? 'hover:bg-green-900/30 hover:text-green-400 text-gray-400'
+                            : 'hover:bg-green-50 hover:text-green-600 text-gray-600'
+                        }`}
                         title="Good response"
                       >
-                        <ThumbsUp className="w-4 h-4 text-gray-600 hover:text-green-600 transition-all duration-200" />
+                        <ThumbsUp className="w-4 h-4 transition-all duration-200" />
                       </button>
                       <button
                         onClick={() =>
                           handleFeedback(message.id || `${index}`, false)
                         }
-                        className="p-1.5 hover:bg-red-50 hover:text-red-600 rounded-md transition-all duration-200 cursor-pointer transform hover:scale-110 active:scale-95"
+                        className={`p-1.5 rounded-md transition-all duration-200 cursor-pointer transform hover:scale-110 active:scale-95 ${
+                          isDarkMode
+                            ? 'hover:bg-red-900/30 hover:text-red-400 text-gray-400'
+                            : 'hover:bg-red-50 hover:text-red-600 text-gray-600'
+                        }`}
                         title="Bad response"
                       >
-                        <ThumbsDown className="w-4 h-4 text-gray-600 hover:text-red-600 transition-all duration-200" />
+                        <ThumbsDown className="w-4 h-4 transition-all duration-200" />
                       </button>
                     </div>
                   </div>
@@ -507,13 +588,19 @@ export default function ChatPage() {
               <div className="flex justify-start">
                 <div className="w-full">
                   <div className="flex space-x-1">
-                    <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
+                    <div className={`w-2 h-2 rounded-full animate-bounce ${
+                      isDarkMode ? 'bg-gray-500' : 'bg-gray-400'
+                    }`}></div>
                     <div
-                      className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"
+                      className={`w-2 h-2 rounded-full animate-bounce ${
+                        isDarkMode ? 'bg-gray-500' : 'bg-gray-400'
+                      }`}
                       style={{ animationDelay: "0.1s" }}
                     ></div>
                     <div
-                      className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"
+                      className={`w-2 h-2 rounded-full animate-bounce ${
+                        isDarkMode ? 'bg-gray-500' : 'bg-gray-400'
+                      }`}
                       style={{ animationDelay: "0.2s" }}
                     ></div>
                   </div>
@@ -528,17 +615,25 @@ export default function ChatPage() {
         {/* Input */}
         <div
           ref={inputContainerRef}
-          className="bg-white border-t border-gray-200 px-4 py-4"
+          className="px-4 py-4"
         >
           <div className="max-w-4xl mx-auto">
             <form onSubmit={handleSubmit}>
-              <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-4">
+              <div className={`rounded-2xl border shadow-sm p-4 ${
+                isDarkMode
+                  ? 'bg-gray-800 border-gray-700'
+                  : 'bg-white border-gray-200'
+              }`}>
                 {uploadedFiles.length > 0 && (
                   <div className="mb-4 flex flex-wrap gap-2">
                     {uploadedFiles.map((file, index) => (
                       <div
                         key={index}
-                        className="flex items-center gap-2 px-3 py-2 bg-gray-50 rounded-lg border border-gray-100 max-w-fit"
+                        className={`flex items-center gap-2 px-3 py-2 rounded-lg border max-w-fit ${
+                          isDarkMode
+                            ? 'bg-gray-700 border-gray-600'
+                            : 'bg-gray-50 border-gray-100'
+                        }`}
                       >
                         {file.type.startsWith("image/") ? (
                           <img
@@ -549,14 +644,22 @@ export default function ChatPage() {
                             className="w-6 h-6 object-cover rounded border"
                           />
                         ) : (
-                          <FileText className="w-4 h-4 text-gray-500 flex-shrink-0" />
+                          <FileText className={`w-4 h-4 flex-shrink-0 ${
+                            isDarkMode ? 'text-gray-400' : 'text-gray-500'
+                          }`} />
                         )}
-                        <span className="text-xs text-gray-600 font-medium">
+                        <span className={`text-xs font-medium ${
+                          isDarkMode ? 'text-gray-300' : 'text-gray-600'
+                        }`}>
                           {getDisplayFileName(file.name)}
                         </span>
                         <button
                           onClick={() => handleRemoveFile(index)}
-                          className="text-gray-400 hover:text-gray-600 flex-shrink-0 transition-colors"
+                          className={`flex-shrink-0 transition-colors ${
+                            isDarkMode
+                              ? 'text-gray-500 hover:text-gray-300'
+                              : 'text-gray-400 hover:text-gray-600'
+                          }`}
                         >
                           <X className="w-3 h-3" />
                         </button>
@@ -595,7 +698,11 @@ export default function ChatPage() {
                         <button
                           ref={addButtonRef}
                           onClick={() => setShowAddMenu(!showAddMenu)}
-                          className="bg-gray-50 hover:bg-gray-100 text-gray-600 hover:text-gray-800 text-sm flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 hover:border-gray-300 transition-all duration-200 cursor-pointer"
+                          className={`text-sm flex items-center gap-2 px-3 py-2 rounded-lg border transition-all duration-200 cursor-pointer ${
+                            isDarkMode
+                              ? 'bg-gray-700 hover:bg-gray-600 text-gray-300 hover:text-gray-100 border-gray-600 hover:border-gray-500'
+                              : 'bg-gray-50 hover:bg-gray-100 text-gray-600 hover:text-gray-800 border-gray-200 hover:border-gray-300'
+                          }`}
                         >
                           <Plus className="w-4 h-4" />
                           <span className="font-medium">Add</span>
@@ -615,7 +722,11 @@ export default function ChatPage() {
                         <button
                           ref={toolsButtonRef}
                           onClick={() => setShowToolsMenu(!showToolsMenu)}
-                          className="bg-gray-50 hover:bg-gray-100 text-gray-600 hover:text-gray-800 text-sm flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 hover:border-gray-300 transition-all duration-200 cursor-pointer"
+                          className={`text-sm flex items-center gap-2 px-3 py-2 rounded-lg border transition-all duration-200 cursor-pointer ${
+                            isDarkMode
+                              ? 'bg-gray-700 hover:bg-gray-600 text-gray-300 hover:text-gray-100 border-gray-600 hover:border-gray-500'
+                              : 'bg-gray-50 hover:bg-gray-100 text-gray-600 hover:text-gray-800 border-gray-200 hover:border-gray-300'
+                          }`}
                         >
                           <Settings2 className="w-4 h-4" />
                           <span className="font-medium">Tools</span>
@@ -631,15 +742,25 @@ export default function ChatPage() {
                     </div>
 
                     {selectedTool && (
-                      <div className="flex items-center gap-2 px-3 py-2 bg-blue-50 rounded-lg border border-blue-200">
-                        <span className="text-sm text-blue-700 font-medium">
+                      <div className={`flex items-center gap-2 px-3 py-2 rounded-lg border ${
+                        isDarkMode
+                          ? 'bg-blue-900/50 border-blue-700'
+                          : 'bg-blue-50 border-blue-200'
+                      }`}>
+                        <span className={`text-sm font-medium ${
+                          isDarkMode ? 'text-blue-300' : 'text-blue-700'
+                        }`}>
                           {selectedTool.persona
                             ? selectedTool.persona
                             : selectedTool.tool}
                         </span>
                         <button
                           onClick={handleRemoveTool}
-                          className="text-blue-400 hover:text-blue-600 transition-colors"
+                          className={`transition-colors ${
+                            isDarkMode
+                              ? 'text-blue-400 hover:text-blue-300'
+                              : 'text-blue-400 hover:text-blue-600'
+                          }`}
                         >
                           <X className="w-3 h-3" />
                         </button>
@@ -650,7 +771,11 @@ export default function ChatPage() {
                   <button
                     type="submit"
                     disabled={!input.trim() || isLoading}
-                    className="bg-gray-900 hover:bg-gray-800 disabled:bg-gray-400 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors duration-200"
+                    className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors duration-200 ${
+                      isDarkMode
+                        ? 'bg-white hover:bg-gray-100 disabled:bg-gray-600 disabled:cursor-not-allowed text-gray-900 disabled:text-gray-400'
+                        : 'bg-gray-900 hover:bg-gray-800 disabled:bg-gray-400 disabled:cursor-not-allowed text-white'
+                    }`}
                   >
                     <Send className="w-5 h-5" />
                   </button>
