@@ -1,3 +1,7 @@
+import { defaultPrompt } from "@/prompt/default/default-prompt"
+import { mrBeastPrompt } from "@/prompt/persona/mrbeast-prompt"
+import { taylorSwiftPrompt } from "@/prompt/persona/taylor-swift-prompt"
+import { sundarPichaiPrompt } from "@/prompt/persona/sundar-pichai-prompt"
 import { createGoogleGenerativeAI } from "@ai-sdk/google"
 import { streamText, generateText, tool } from "ai"
 import { z } from "zod"
@@ -6,7 +10,7 @@ export const maxDuration = 30
 
 export async function POST(req: Request) {
     try {
-        const { messages } = await req.json()
+        const { messages, persona } = await req.json()
         const apiKey = req.headers.get("x-api-key")
 
 
@@ -17,6 +21,26 @@ export async function POST(req: Request) {
         const model = google("gemini-2.0-flash")
 
         console.log("Model created successfully")
+
+        // Select system prompt based on persona
+        let systemPrompt = defaultPrompt()
+        
+        if (persona) {
+            console.log("Using persona:", persona)
+            switch (persona.toLowerCase()) {
+                case 'mrbeast':
+                    systemPrompt = mrBeastPrompt()
+                    break
+                case 'taylor swift':
+                    systemPrompt = taylorSwiftPrompt()
+                    break
+                case 'sundar pichai':
+                    systemPrompt = sundarPichaiPrompt()
+                    break
+                default:
+                    systemPrompt = defaultPrompt()
+            }
+        }
 
         const result = streamText({
             model,
@@ -239,6 +263,7 @@ export async function POST(req: Request) {
                             const volume = quote["06. volume"] ? parseInt(quote["06. volume"]) : 0
                             const dayLow = quote["04. low"] ? parseFloat(quote["04. low"]) : 0
                             const dayHigh = quote["03. high"] ? parseFloat(quote["03. high"]) : 0
+                            const prevClose = quote["08. previous close"] ? parseFloat(quote["08. previous close"]) : 0
 
                             // Validate that we have essential data
                             if (!price || isNaN(price)) {
@@ -264,6 +289,28 @@ export async function POST(req: Request) {
                                 currency = "INR"
                             }
 
+                            // Generate mock historical data for chart (in production, you'd fetch real data)
+                            const generateChartData = (currentPrice: number, changePercent: number) => {
+                                const data = []
+                                let basePrice = currentPrice / (1 + changePercent / 100)
+                                
+                                for (let i = 0; i < 30; i++) {
+                                    const volatility = (Math.random() - 0.5) * 0.05
+                                    const trend = (changePercent / 100) * (i / 30)
+                                    basePrice = basePrice * (1 + trend + volatility)
+                                    data.push(Number(basePrice.toFixed(2)))
+                                }
+                                
+                                data[data.length - 1] = currentPrice
+                                return data
+                            }
+
+                            // Calculate additional metrics
+                            const weekHigh52 = overviewData?.["52WeekHigh"] ? parseFloat(overviewData["52WeekHigh"]) : null
+                            const weekLow52 = overviewData?.["52WeekLow"] ? parseFloat(overviewData["52WeekLow"]) : null
+                            const beta = overviewData?.Beta ? parseFloat(overviewData.Beta) : null
+                            const eps = overviewData?.EPS ? parseFloat(overviewData.EPS) : null
+
                             // Return data with correct property names for StockCard
                             return {
                                 name: overviewData?.Name || `${params.ticker.toUpperCase()} Stock`,
@@ -282,7 +329,17 @@ export async function POST(req: Request) {
                                 peRatio: overviewData?.PERatio ? parseFloat(overviewData.PERatio) : null,
                                 dividendYield: overviewData?.DividendYield ? parseFloat(overviewData.DividendYield) * 100 : null,
                                 sector: overviewData?.Sector || null,
-                                chartData: null, // Would need additional API call for historical data
+                                industry: overviewData?.Industry || null,
+                                description: overviewData?.Description || null,
+                                chartData: generateChartData(price, changePercent),
+                                previousClose: prevClose || null,
+                                weekHigh52: weekHigh52,
+                                weekLow52: weekLow52,
+                                beta: beta,
+                                eps: eps,
+                                bookValue: overviewData?.BookValue ? parseFloat(overviewData.BookValue) : null,
+                                priceToBook: overviewData?.PriceToBookRatio ? parseFloat(overviewData.PriceToBookRatio) : null,
+                                lastUpdated: new Date().toISOString(),
                             }
                         } catch (error) {
                             console.error("Alpha Vantage API error:", error)
@@ -303,7 +360,17 @@ export async function POST(req: Request) {
                                 peRatio: null,
                                 dividendYield: null,
                                 sector: null,
+                                industry: null,
+                                description: null,
                                 chartData: null,
+                                previousClose: null,
+                                weekHigh52: null,
+                                weekLow52: null,
+                                beta: null,
+                                eps: null,
+                                bookValue: null,
+                                priceToBook: null,
+                                lastUpdated: new Date().toISOString(),
                             }
                         }
                     },
@@ -532,61 +599,7 @@ export async function POST(req: Request) {
                     }
                 })
             },
-            system: `You are T3 Chat, a helpful AI assistant powered by Google's Gemini model. T3 Chat was created by Grenish Rai for the clonethon project, showcasing modern AI capabilities through interactive conversations.
-
-Current date: ${new Date().toLocaleDateString('en-US', { 
-                weekday: 'long', 
-                year: 'numeric', 
-                month: 'long', 
-                day: 'numeric',
-                timeZone: 'UTC'
-            })}
-
-You're a knowledgeable assistant who can help with a wide variety of tasks including:
-- Answering questions on virtually any topic
-- Providing explanations and educational content
-- Writing and editing text
-- Coding assistance and programming help
-- Creative writing and brainstorming
-- Problem-solving and analysis
-- General conversation and advice
-
-You also have some special capabilities that enhance the user experience:
-- When users want to see product information, you can create visual product cards
-- For weather queries, you can display weather information in a nice card format
-- When asked about stocks, you can fetch real-time stock data and show it visually
-- You can generate images from text descriptions when users ask for visual content
-- For entertainment recommendations (movies, TV shows, music), you can create recommendation cards
-
-For image generation:
-- Use the generateImage tool when users want to create, generate, draw, or visualize something
-- Enhance prompts with artistic details for better results
-- Be creative and suggest improvements to user prompts
-
-For web search - IMPORTANT INSTRUCTIONS:
-- ALWAYS use the webSearch tool when users ask for current information, recent news, facts, or anything that requires up-to-date data
-- After using the webSearch tool, IMMEDIATELY analyze and synthesize the search results in your response
-- When the webSearch tool returns results, use the searchContent from the results to provide a comprehensive answer
-- Integrate the information naturally into your response as if it's part of your knowledge
-- DO NOT include numbered citations like [1], [2] in your response text
-- Present the information naturally without referencing specific sources in the text
-- The sources will be displayed separately in a citation card below your response
-
-Example of how to handle web search results:
-User asks: "What are the latest AI trends?"
-1. Use webSearch tool with query "latest AI trends 2024"
-2. Process the results and write a comprehensive response like:
-"Based on recent developments, the latest AI trends include generative AI advancement, multimodal capabilities, and improved efficiency. Another major trend is the integration of AI into everyday applications..."
-3. Do NOT add any source citations in the text - they will appear automatically in a citation card
-
-When providing code:
-- Use proper markdown code blocks with language specification: \`\`\`javascript, \`\`\`python, etc.
-- Use inline code with backticks for short snippets: \`const example = "code"\`
-- Always specify the programming language for syntax highlighting
-
-CRITICAL: When you receive webSearch tool results, you MUST process and present that information in your response. Do not just acknowledge that you searched - actually use the search results to answer the user's question comprehensively. The sources will be shown separately, so focus on providing a clear, informative answer.
-
-Be natural, conversational, and helpful. Don't just list your capabilities - engage with what the user actually wants to discuss or accomplish. You're here to assist with whatever they need, whether it's a simple question, a complex problem, or just a friendly chat.`,
+            system: systemPrompt,
         })
 
         console.log("StreamText result created")
