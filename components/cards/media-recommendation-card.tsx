@@ -1,5 +1,6 @@
 import React from 'react';
 import { Star, Play, Clock } from 'lucide-react';
+import { useTheme } from '@/util/theme-switcher';
 
 interface MediaRecommendationCardProps {
   title: string;
@@ -22,14 +23,16 @@ const MediaRecommendationCard: React.FC<MediaRecommendationCardProps> = ({
   type,
   onPlay
 }) => {
+  const { isDarkMode } = useTheme();
+
   const getPlatformColor = (platform: string) => {
     switch (platform.toLowerCase()) {
-      case 'netflix': return 'bg-gradient-to-r from-red-600 to-red-700';
-      case 'spotify': return 'bg-gradient-to-r from-green-600 to-green-700';
-      case 'prime video': return 'bg-gradient-to-r from-blue-600 to-blue-700';
-      case 'disney+': return 'bg-gradient-to-r from-indigo-600 to-indigo-700';
-      case 'hulu': return 'bg-gradient-to-r from-emerald-600 to-emerald-700';
-      default: return 'bg-gradient-to-r from-gray-600 to-gray-700';
+      case 'netflix': return 'bg-gradient-to-r from-red-600 to-red-700 dark:from-red-500 dark:to-red-600';
+      case 'spotify': return 'bg-gradient-to-r from-green-600 to-green-700 dark:from-green-500 dark:to-green-600';
+      case 'prime video': return 'bg-gradient-to-r from-blue-600 to-blue-700 dark:from-blue-500 dark:to-blue-600';
+      case 'disney+': return 'bg-gradient-to-r from-indigo-600 to-indigo-700 dark:from-indigo-500 dark:to-indigo-600';
+      case 'hulu': return 'bg-gradient-to-r from-emerald-600 to-emerald-700 dark:from-emerald-500 dark:to-emerald-600';
+      default: return 'bg-gradient-to-r from-gray-600 to-gray-700 dark:from-gray-500 dark:to-gray-600';
     }
   };
 
@@ -44,7 +47,7 @@ const MediaRecommendationCard: React.FC<MediaRecommendationCardProps> = ({
             ? 'text-amber-400 fill-amber-400' 
             : index < rating 
             ? 'text-amber-400 fill-amber-400/50' 
-            : 'text-gray-500'
+            : 'text-gray-500 dark:text-gray-400'
         }`}
       />
     ));
@@ -52,7 +55,11 @@ const MediaRecommendationCard: React.FC<MediaRecommendationCardProps> = ({
 
   return (
     <div className="w-full max-w-md mx-auto">
-      <div className="bg-gray-900 border border-gray-800 rounded-xl shadow-xl overflow-hidden hover:border-gray-700 transition-all duration-300">
+      <div className={`border rounded-xl shadow-xl overflow-hidden transition-all duration-300 ${
+        isDarkMode 
+          ? 'bg-gray-800 border-gray-700 shadow-gray-900/20 hover:border-gray-600' 
+          : 'bg-white border-gray-200 hover:border-gray-300'
+      }`}>
         <div className="flex h-36">
           {/* Image with overlay gradient */}
           <div className="relative w-28 h-full flex-shrink-0">
@@ -61,16 +68,22 @@ const MediaRecommendationCard: React.FC<MediaRecommendationCardProps> = ({
               alt={title}
               className="w-full h-full object-cover"
             />
-            <div className="absolute inset-0 bg-gradient-to-l from-gray-900 via-transparent to-transparent opacity-60" />
+            <div className={`absolute inset-0 bg-gradient-to-l via-transparent to-transparent opacity-60 ${
+              isDarkMode ? 'from-gray-800' : 'from-white'
+            }`} />
           </div>
 
           {/* Content section with improved spacing */}
           <div className="flex-1 p-4 flex flex-col justify-between">
             <div>
-              <h3 className="font-semibold text-white text-base leading-tight line-clamp-2 tracking-tight">
+              <h3 className={`font-semibold text-base leading-tight line-clamp-2 tracking-tight ${
+                isDarkMode ? 'text-gray-100' : 'text-gray-900'
+              }`}>
                 {title}
               </h3>
-              <p className="text-gray-400 text-xs mt-1.5 tracking-wide font-medium uppercase">
+              <p className={`text-xs mt-1.5 tracking-wide font-medium uppercase ${
+                isDarkMode ? 'text-gray-400' : 'text-gray-500'
+              }`}>
                 {genre}
               </p>
             </div>
@@ -80,7 +93,9 @@ const MediaRecommendationCard: React.FC<MediaRecommendationCardProps> = ({
                 <div className="flex items-center gap-0.5">
                   {renderStars(rating)}
                 </div>
-                <span className="text-gray-300 text-xs font-medium">
+                <span className={`text-xs font-medium ${
+                  isDarkMode ? 'text-gray-300' : 'text-gray-700'
+                }`}>
                   {rating.toFixed(1)}
                 </span>
               </div>
@@ -91,7 +106,11 @@ const MediaRecommendationCard: React.FC<MediaRecommendationCardProps> = ({
                 </span>
                 
                 {duration && (
-                  <div className="flex items-center gap-1.5 text-gray-300 bg-gray-800/80 py-1 px-2 rounded-full">
+                  <div className={`flex items-center gap-1.5 py-1 px-2 rounded-full ${
+                    isDarkMode 
+                      ? 'text-gray-300 bg-gray-700/80' 
+                      : 'text-gray-600 bg-gray-100'
+                  }`}>
                     <Clock size={11} />
                     <span className="text-xs font-medium">{duration}</span>
                   </div>
@@ -102,10 +121,14 @@ const MediaRecommendationCard: React.FC<MediaRecommendationCardProps> = ({
         </div>
 
         {/* Footer with refined button */}
-        <div className="px-4 py-3 border-t border-gray-800 bg-gray-900/80">
+        <div className={`px-4 py-3 border-t ${
+          isDarkMode 
+            ? 'border-gray-700 bg-gray-800/80' 
+            : 'border-gray-200 bg-gray-50'
+        }`}>
           <button
             onClick={onPlay}
-            className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white text-sm font-medium py-2 px-4 rounded-lg transition-colors duration-200 shadow-sm"
+            className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 dark:from-blue-500 dark:to-indigo-500 dark:hover:from-blue-600 dark:hover:to-indigo-600 text-white text-sm font-medium py-2 px-4 rounded-lg transition-colors duration-200 shadow-sm"
           >
             <Play size={16} className="fill-current" />
             {type === 'music' ? 'Listen Now' : type === 'tv' ? 'Watch Series' : 'Watch Now'}
