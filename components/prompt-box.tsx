@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useTheme } from "@/util/theme-switcher";
 
 const promptSuggestions = {
   Generate: [
@@ -35,6 +36,7 @@ interface PromptBoxProps {
 
 export default function PromptBox({ onPromptsChange }: PromptBoxProps) {
   const [selectedPrompt, setSelectedPrompt] = useState<string | null>(null);
+  const { isDarkMode } = useTheme();
 
   const handlePromptClick = (prompt: string) => {
     const newSelection = selectedPrompt === prompt ? null : prompt;
@@ -56,7 +58,11 @@ export default function PromptBox({ onPromptsChange }: PromptBoxProps) {
             onClick={() => handlePromptClick(prompt)}
             className={`px-4 sm:px-6 lg:px-8 py-2 sm:py-3 cursor-pointer rounded-full text-xs font-medium transition-all duration-200 ${
               selectedPrompt === prompt
-                ? "bg-black text-white"
+                ? isDarkMode
+                  ? "bg-blue-600 text-white"
+                  : "bg-black text-white"
+                : isDarkMode
+                ? "bg-gray-700/50 text-gray-300 hover:bg-gray-600/50 hover:text-gray-100"
                 : "bg-gray-100 text-gray-700 hover:bg-gray-200"
             }`}
           >
