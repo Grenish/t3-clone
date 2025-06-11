@@ -3,6 +3,7 @@
 import React from "react";
 import Image from "next/image";
 import { Star, StarHalf } from "lucide-react";
+import { useTheme } from "@/util/theme-switcher";
 
 interface ProductCardProps {
   id: string;
@@ -22,27 +23,27 @@ interface ProductCardProps {
 
 const platformConfig = {
   amazon: {
-    color: "bg-orange-50 border-orange-200",
-    textColor: "text-orange-700",
-    dotColor: "bg-orange-400",
+    color: "bg-orange-50 dark:bg-orange-900/20 border-orange-200 dark:border-orange-800",
+    textColor: "text-orange-700 dark:text-orange-400",
+    dotColor: "bg-orange-400 dark:bg-orange-500",
     label: "Amazon",
   },
   flipkart: {
-    color: "bg-blue-50 border-blue-200",
-    textColor: "text-blue-700",
-    dotColor: "bg-blue-400",
+    color: "bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800",
+    textColor: "text-blue-700 dark:text-blue-400",
+    dotColor: "bg-blue-400 dark:bg-blue-500",
     label: "Flipkart",
   },
   ebay: {
-    color: "bg-yellow-50 border-yellow-200",
-    textColor: "text-yellow-700",
-    dotColor: "bg-yellow-400",
+    color: "bg-yellow-50 dark:bg-yellow-900/20 border-yellow-200 dark:border-yellow-800",
+    textColor: "text-yellow-700 dark:text-yellow-400",
+    dotColor: "bg-yellow-400 dark:bg-yellow-500",
     label: "eBay",
   },
   other: {
-    color: "bg-gray-50 border-gray-200",
-    textColor: "text-gray-700",
-    dotColor: "bg-gray-400",
+    color: "bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700",
+    textColor: "text-gray-700 dark:text-gray-300",
+    dotColor: "bg-gray-400 dark:bg-gray-500",
     label: "Store",
   },
 };
@@ -69,7 +70,7 @@ const StarRating: React.FC<{ rating: number; size?: number }> = ({
         />
       );
     } else {
-      stars.push(<Star key={i} size={size} className="text-gray-200" />);
+      stars.push(<Star key={i} size={size} className="text-gray-200 dark:text-gray-600" />);
     }
   }
 
@@ -92,6 +93,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({
   className = "",
 }) => {
   const platformStyle = platformConfig[platform];
+  const { isDarkMode } = useTheme();
 
   const handleClick = () => {
     onClick?.(id);
@@ -107,11 +109,14 @@ export const ProductCard: React.FC<ProductCardProps> = ({
   return (
     <div
       className={`
-        group relative bg-white rounded-lg border-0
-        shadow-[0_1px_10px_rgba(0,0,0,0.03)] transition-all
-        duration-300 ease-out cursor-pointer overflow-hidden
+        group relative rounded-lg border-0
+        transition-all duration-300 ease-out cursor-pointer overflow-hidden
         focus-within:ring-2 focus-within:ring-blue-500/20 focus-within:ring-offset-1
         w-full max-w-[280px] sm:max-w-[240px] md:max-w-[220px] lg:max-w-[280px]
+        ${isDarkMode 
+          ? 'bg-gray-800 shadow-[0_1px_10px_rgba(0,0,0,0.2)] hover:shadow-[0_4px_20px_rgba(0,0,0,0.3)]' 
+          : 'bg-white shadow-[0_1px_10px_rgba(0,0,0,0.03)] hover:shadow-[0_4px_20px_rgba(0,0,0,0.08)]'
+        }
         ${className}
       `}
       onClick={handleClick}
@@ -123,14 +128,14 @@ export const ProductCard: React.FC<ProductCardProps> = ({
       {/* Discount Badge */}
       {discount && (
         <div className="absolute top-1.5 right-1.5 z-10">
-          <div className="bg-red-500/90 backdrop-blur-sm text-white text-[10px] font-medium px-1.5 py-0.5 rounded-full shadow-sm">
+          <div className="bg-red-500/90 dark:bg-red-600/90 backdrop-blur-sm text-white text-[10px] font-medium px-1.5 py-0.5 rounded-full shadow-sm">
             -{discount}%
           </div>
         </div>
       )}
 
       {/* Product Image */}
-      <div className="relative aspect-square overflow-hidden bg-gray-50/50 rounded-t-lg">
+      <div className="relative aspect-square overflow-hidden bg-gray-50/50 dark:bg-gray-700/50 rounded-t-lg">
         <Image
           src={imageUrl}
           alt={imageAlt || title}
@@ -161,7 +166,11 @@ export const ProductCard: React.FC<ProductCardProps> = ({
 
         {/* Product Title */}
         <h3
-          className="font-medium text-gray-800 line-clamp-2 text-xs leading-4 group-hover:text-gray-900 transition-colors"
+          className={`font-medium line-clamp-2 text-xs leading-4 transition-colors ${
+            isDarkMode 
+              ? 'text-gray-200 group-hover:text-gray-100' 
+              : 'text-gray-800 group-hover:text-gray-900'
+          }`}
           title={title}
         >
           {title}
@@ -171,11 +180,15 @@ export const ProductCard: React.FC<ProductCardProps> = ({
         <div className="flex items-center gap-1.5">
           <StarRating rating={rating} size={8} />
           <div className="flex items-center gap-0.5">
-            <span className="text-[10px] font-medium text-gray-700">
+            <span className={`text-[10px] font-medium ${
+              isDarkMode ? 'text-gray-300' : 'text-gray-700'
+            }`}>
               {rating.toFixed(1)}
             </span>
             {reviewCount && (
-              <span className="text-[9px] text-gray-500">
+              <span className={`text-[9px] ${
+                isDarkMode ? 'text-gray-400' : 'text-gray-500'
+              }`}>
                 (
                 {reviewCount > 999
                   ? `${Math.floor(reviewCount / 1000)}k`
@@ -188,12 +201,16 @@ export const ProductCard: React.FC<ProductCardProps> = ({
 
         {/* Pricing */}
         <div className="flex items-baseline gap-1.5">
-          <span className="text-sm font-bold text-gray-900">
+          <span className={`text-sm font-bold ${
+            isDarkMode ? 'text-gray-100' : 'text-gray-900'
+          }`}>
             {currency}
             {price.toFixed(2)}
           </span>
           {originalPrice && originalPrice > price && (
-            <span className="text-[10px] text-gray-400 line-through">
+            <span className={`text-[10px] line-through ${
+              isDarkMode ? 'text-gray-500' : 'text-gray-400'
+            }`}>
               {currency}
               {originalPrice.toFixed(2)}
             </span>
@@ -202,7 +219,9 @@ export const ProductCard: React.FC<ProductCardProps> = ({
       </div>
 
       {/* Subtle bottom accent */}
-      <div className="absolute bottom-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-gray-100 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+      <div className={`absolute bottom-0 left-0 right-0 h-px bg-gradient-to-r from-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 ${
+        isDarkMode ? 'via-gray-700' : 'via-gray-100'
+      }`} />
     </div>
   );
 };
