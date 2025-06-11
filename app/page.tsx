@@ -3,6 +3,7 @@
 import { useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { gsap } from "gsap";
+import { useTheme } from "@/util/theme-switcher";
 import GradientBall from "@/components/gradient-ball";
 import PromptBox from "@/components/prompt-box";
 import TimeGreetings from "@/components/time-greetings";
@@ -31,6 +32,7 @@ export default function Home() {
   const [showAddMenu, setShowAddMenu] = useState(false);
   const [showToolsMenu, setShowToolsMenu] = useState(false);
   const [isTransitioning, setIsTransitioning] = useState(false);
+  const { isDarkMode } = useTheme();
   const pageRef = useRef<HTMLDivElement>(null);
   const formRef = useRef<HTMLDivElement>(null);
   const headerContentRef = useRef<HTMLDivElement>(null);
@@ -95,10 +97,19 @@ export default function Home() {
           // Generate a unique chat ID
           const chatId = Date.now().toString();
 
+          // Create URL with message and persona
+          const searchParams = new URLSearchParams({
+            message: textareaValue.trim(),
+            transition: "true",
+          });
+
+          // Add persona if selected
+          if (selectedTool?.persona) {
+            searchParams.set("persona", selectedTool.persona);
+          }
+
           // Navigate to chat page
-          router.push(
-            `/c/${chatId}?message=${encodeURIComponent(textareaValue.trim())}&transition=true`
-          );
+          router.push(`/c/${chatId}?${searchParams.toString()}`);
         },
       });
 
@@ -126,22 +137,11 @@ export default function Home() {
         0.1
       );
 
-      // Move the form to bottom position
+      // Move the form to bottom position (matching chat page layout)
       tl.to(
         formRef.current,
         {
-          y: "calc(100vh - 200px)",
-          duration: 0.6,
-          ease: "power2.inOut",
-        },
-        0.2
-      );
-
-      // Add chat header space at the top
-      tl.to(
-        pageRef.current,
-        {
-          paddingTop: "80px",
+          y: window.innerHeight - formRef.current!.getBoundingClientRect().bottom - 16,
           duration: 0.6,
           ease: "power2.inOut",
         },
@@ -154,7 +154,11 @@ export default function Home() {
     <PageTransition>
       <div
         ref={pageRef}
-        className="w-full min-h-screen flex flex-col items-center justify-center px-4 sm:px-6 lg:px-8 bg-gray-50"
+        className={`w-full min-h-screen flex flex-col items-center justify-center px-4 sm:px-6 lg:px-8 ${
+          isDarkMode 
+            ? 'bg-gradient-to-b from-[#1B1B1B] to-[#003153]' 
+            : 'bg-gradient-to-b from-[#fdfbfb] to-[#ebedee]'
+        }`}
       >
         <div className="w-full max-w-4xl mx-auto">
           <div ref={headerContentRef}>
@@ -165,9 +169,13 @@ export default function Home() {
             <div className="mt-8 text-center">
               <TimeGreetings
                 user="John"
-                className="text-2xl sm:text-3xl lg:text-4xl font-light text-gray-700 mb-2"
+                className={`text-2xl sm:text-3xl lg:text-4xl font-light mb-2 ${
+                  isDarkMode ? 'text-gray-300' : 'text-gray-700'
+                }`}
               />
-              <h2 className="text-2xl sm:text-3xl lg:text-4xl font-light text-gray-900">
+              <h2 className={`text-2xl sm:text-3xl lg:text-4xl font-light ${
+                isDarkMode ? 'text-white' : 'text-gray-900'
+              }`}>
                 How can I help you today?
               </h2>
             </div>
@@ -182,13 +190,23 @@ export default function Home() {
                     key={index}
                     onClick={() => handleSuggestionClick(suggestion)}
                     disabled={isTransitioning}
-                    className="text-left p-4 cursor-pointer rounded-xl border border-gray-200 bg-white hover:border-gray-300 hover:shadow-md transition-all duration-300 group disabled:opacity-50 disabled:cursor-not-allowed"
+                    className={`text-left p-4 cursor-pointer rounded-xl border transition-all duration-300 group disabled:opacity-50 disabled:cursor-not-allowed ${
+                      isDarkMode
+                        ? 'border-gray-700 bg-gray-800/60 hover:bg-gray-700/60 hover:border-gray-600 hover:shadow-lg hover:shadow-blue-900/10'
+                        : 'border-gray-200 bg-white hover:border-gray-300 hover:shadow-md'
+                    }`}
                   >
                     <div className="flex items-start justify-between">
-                      <span className="text-gray-700 text-sm leading-relaxed pr-3 font-medium">
+                      <span className={`text-sm leading-relaxed pr-3 font-medium ${
+                        isDarkMode ? 'text-gray-200' : 'text-gray-700'
+                      }`}>
                         {suggestion}
                       </span>
-                      <ChevronRight className="w-4 h-4 text-gray-400 group-hover:text-gray-600 transition-colors duration-300 flex-shrink-0 mt-0.5" />
+                      <ChevronRight className={`w-4 h-4 transition-colors duration-300 flex-shrink-0 mt-0.5 ${
+                        isDarkMode 
+                          ? 'text-gray-500 group-hover:text-gray-300' 
+                          : 'text-gray-400 group-hover:text-gray-600'
+                      }`} />
                     </div>
                   </button>
                 ))}
@@ -199,20 +217,26 @@ export default function Home() {
           <div
             className="w-full mt-16 sm:mt-20"
             style={{
-              position: isTransitioning ? "fixed" : "relative",
-              width: isTransitioning ? "100%" : "auto",
               zIndex: isTransitioning ? 50 : "auto",
             }}
           >
             <div ref={formRef} className="max-w-3xl mx-auto">
               <form onSubmit={handleSend}>
-                <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-4">
+                <div className={`rounded-2xl border shadow-sm p-4 ${
+                  isDarkMode
+                    ? 'bg-gray-800/70 border-gray-700'
+                    : 'bg-white border-gray-200'
+                }`}>
                   {uploadedFiles.length > 0 && (
                     <div className="mb-4 flex flex-wrap gap-2">
                       {uploadedFiles.map((file, index) => (
                         <div
                           key={index}
-                          className="flex items-center gap-2 px-3 py-2 bg-gray-50 rounded-lg border border-gray-100 max-w-fit"
+                          className={`flex items-center gap-2 px-3 py-2 rounded-lg border max-w-fit ${
+                            isDarkMode
+                              ? 'bg-gray-700/60 border-gray-600'
+                              : 'bg-gray-50 border-gray-100'
+                          }`}
                         >
                           {file.type.startsWith("image/") ? (
                             <img
@@ -221,14 +245,22 @@ export default function Home() {
                               className="w-6 h-6 object-cover rounded border"
                             />
                           ) : (
-                            <FileText className="w-4 h-4 text-gray-500 flex-shrink-0" />
+                            <FileText className={`w-4 h-4 flex-shrink-0 ${
+                              isDarkMode ? 'text-gray-400' : 'text-gray-500'
+                            }`} />
                           )}
-                          <span className="text-xs text-gray-600 font-medium">
+                          <span className={`text-xs font-medium ${
+                            isDarkMode ? 'text-gray-300' : 'text-gray-600'
+                          }`}>
                             {getDisplayFileName(file.name)}
                           </span>
                           <button
                             onClick={() => handleRemoveFile(index)}
-                            className="text-gray-400 hover:text-gray-600 flex-shrink-0 transition-colors"
+                            className={`flex-shrink-0 transition-colors ${
+                              isDarkMode
+                                ? 'text-gray-500 hover:text-gray-300'
+                                : 'text-gray-400 hover:text-gray-600'
+                            }`}
                           >
                             <X className="w-3 h-3" />
                           </button>
@@ -263,7 +295,11 @@ export default function Home() {
                           <button
                             ref={addButtonRef}
                             onClick={() => setShowAddMenu(!showAddMenu)}
-                            className="bg-gray-50 hover:bg-gray-100 text-gray-600 hover:text-gray-800 text-sm flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 hover:border-gray-300 transition-all duration-200 cursor-pointer"
+                            className={`text-sm flex items-center gap-2 px-3 py-2 rounded-lg border transition-all duration-200 cursor-pointer ${
+                              isDarkMode
+                                ? 'bg-gray-700/50 hover:bg-gray-600/50 text-gray-300 hover:text-gray-100 border-gray-600 hover:border-gray-500'
+                                : 'bg-gray-50 hover:bg-gray-100 text-gray-600 hover:text-gray-800 border-gray-200 hover:border-gray-300'
+                            }`}
                           >
                             <Plus className="w-4 h-4" />
                             <span className="font-medium">Add</span>
@@ -283,7 +319,11 @@ export default function Home() {
                           <button
                             ref={toolsButtonRef}
                             onClick={() => setShowToolsMenu(!showToolsMenu)}
-                            className="bg-gray-50 hover:bg-gray-100 text-gray-600 hover:text-gray-800 text-sm flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 hover:border-gray-300 transition-all duration-200 cursor-pointer"
+                            className={`text-sm flex items-center gap-2 px-3 py-2 rounded-lg border transition-all duration-200 cursor-pointer ${
+                              isDarkMode
+                                ? 'bg-gray-700/50 hover:bg-gray-600/50 text-gray-300 hover:text-gray-100 border-gray-600 hover:border-gray-500'
+                                : 'bg-gray-50 hover:bg-gray-100 text-gray-600 hover:text-gray-800 border-gray-200 hover:border-gray-300'
+                            }`}
                           >
                             <Settings2 className="w-4 h-4" />
                             <span className="font-medium">Tools</span>
@@ -299,15 +339,25 @@ export default function Home() {
                       </div>
 
                       {selectedTool && (
-                        <div className="flex items-center gap-2 px-3 py-2 bg-blue-50 rounded-lg border border-blue-200">
-                          <span className="text-sm text-blue-700 font-medium">
+                        <div className={`flex items-center gap-2 px-3 py-2 rounded-lg border ${
+                          isDarkMode
+                            ? 'bg-blue-900/40 border-blue-700/50'
+                            : 'bg-blue-50 border-blue-200'
+                        }`}>
+                          <span className={`text-sm font-medium ${
+                            isDarkMode ? 'text-blue-300' : 'text-blue-700'
+                          }`}>
                             {selectedTool.persona
                               ? selectedTool.persona
                               : selectedTool.tool}
                           </span>
                           <button
                             onClick={handleRemoveTool}
-                            className="text-blue-400 hover:text-blue-600 transition-colors"
+                            className={`transition-colors ${
+                              isDarkMode
+                                ? 'text-blue-400 hover:text-blue-300'
+                                : 'text-blue-400 hover:text-blue-600'
+                            }`}
                           >
                             <X className="w-3 h-3" />
                           </button>
@@ -318,7 +368,11 @@ export default function Home() {
                     <button
                       type="submit"
                       disabled={!textareaValue.trim() || isTransitioning}
-                      className="bg-gray-900 hover:bg-gray-800 disabled:bg-gray-400 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors duration-200"
+                      className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors duration-200 ${
+                        isDarkMode
+                          ? 'bg-blue-600 hover:bg-blue-500 disabled:bg-gray-600 disabled:cursor-not-allowed text-white disabled:text-gray-400'
+                          : 'bg-gray-900 hover:bg-gray-800 disabled:bg-gray-400 disabled:cursor-not-allowed text-white'
+                      }`}
                     >
                       {isTransitioning ? "Sending..." : "Send"}
                     </button>
