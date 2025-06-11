@@ -3,6 +3,7 @@ import MediaRecommendationCard from "@/components/cards/media-recommendation-car
 import ProductCard from "@/components/cards/product-card";
 import StockCard from "@/components/cards/stock-card";
 import { WeatherCard } from "@/components/cards/weather-card";
+import ThemeSwitch from "@/components/theme-switch";
 
 export default function TestCard() {
   const sampleWeatherData = {
@@ -85,6 +86,9 @@ export default function TestCard() {
         </div>
         <div className="border border-gray-300 rounded-lg p-6 flex items-center justify-center">
           <MediaRecommendationCard {...sampleMediaRecommendation} />
+        </div>
+        <div className="border border-gray-300 rounded-lg p-6 flex items-center justify-center">
+          <ThemeSwitch />
         </div>
       </div>
     </div>
