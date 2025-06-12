@@ -1,8 +1,9 @@
 import type { Metadata } from "next";
 import { Montserrat } from "next/font/google";
 import "./globals.css";
-import ThemeSwitch from "@/components/theme-switch";
-import { ThemeProvider } from "@/util/theme-switcher";
+import { LayoutProvider } from "@/util/layout-provider";
+import { ThemeProvider } from "@/util/theme-provider";
+import { ConditionalLayout } from "@/components/conditional-layout";
 
 const mont = Montserrat({
   subsets: ["latin"],
@@ -27,10 +28,11 @@ export default function RootLayout({
         className={`${mont.className} antialiased`}
       >
         <ThemeProvider>
-          <div className="fixed top-4 right-4 z-50">
-            <ThemeSwitch />
-          </div>
-          {children}
+          <LayoutProvider>
+            <ConditionalLayout>
+              {children}
+            </ConditionalLayout>
+          </LayoutProvider>
         </ThemeProvider>
       </body>
     </html>
