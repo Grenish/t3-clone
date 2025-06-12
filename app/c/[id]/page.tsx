@@ -6,7 +6,8 @@ import { useState, useEffect, useRef } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useChat } from "ai/react";
 import { gsap } from "gsap";
-import { useTheme } from "@/util/theme-switcher";
+import { useTheme } from "@/util/theme-provider";
+import { useLayout } from "@/util/layout-provider";
 import PageTransition from "@/components/page-transition";
 import AutoResizeTextarea from "@/components/auto-resize-textarea";
 import Tooltip from "@/components/tooltip";
@@ -56,6 +57,7 @@ export default function ChatPage() {
   const addButtonRef = useRef<HTMLButtonElement>(null!);
   const toolsButtonRef = useRef<HTMLButtonElement>(null!);
   const { isDarkMode } = useTheme();
+  const { currentLayout } = useLayout();
 
   const {
     messages,
@@ -191,6 +193,7 @@ export default function ChatPage() {
 
       const tl = gsap.timeline({
         onComplete: () => {
+          // Navigate back to home page - layout context will handle which layout to show
           router.push("/");
         },
       });
