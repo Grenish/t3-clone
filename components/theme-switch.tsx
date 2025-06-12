@@ -3,7 +3,7 @@
 import React, { useState, useRef } from 'react';
 import { Sun, Moon, Monitor, Palette } from 'lucide-react';
 import { gsap } from 'gsap';
-import { useTheme } from '@/util/theme-switcher';
+import { useTheme } from '@/util/theme-provider';
 
 type Theme = 'light' | 'dark' | 'system' | 'dynamic';
 
