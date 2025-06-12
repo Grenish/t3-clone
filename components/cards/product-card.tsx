@@ -3,7 +3,7 @@
 import React from "react";
 import Image from "next/image";
 import { Star, StarHalf } from "lucide-react";
-import { useTheme } from "@/util/theme-switcher";
+import { useTheme } from "@/util/theme-provider";
 
 interface ProductCardProps {
   id: string;
