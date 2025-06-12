@@ -1,5 +1,5 @@
 import { ExternalLink, Clock, Globe, Search } from "lucide-react";
-import { useTheme } from "@/util/theme-switcher";
+import { useTheme } from "@/util/theme-provider";
 
 interface WebSearchSource {
   id: number;
