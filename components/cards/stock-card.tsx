@@ -2,7 +2,7 @@
 
 import React, { useState } from "react";
 import { TrendingUp, TrendingDown, ChevronDown, ChevronUp } from "lucide-react";
-import { useTheme } from "@/util/theme-switcher";
+import { useTheme } from "@/util/theme-provider";
 
 interface StockData {
   name: string;
