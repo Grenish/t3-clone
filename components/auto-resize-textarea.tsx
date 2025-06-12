@@ -23,7 +23,16 @@ export default function AutoResizeTextarea({
     const textarea = textareaRef.current;
     if (textarea) {
       textarea.style.height = "auto";
-      textarea.style.height = `${textarea.scrollHeight}px`;
+      const newHeight = textarea.scrollHeight;
+      const maxHeight = 200; // Match the max-h-[200px] value
+
+      if (newHeight <= maxHeight) {
+        textarea.style.height = `${newHeight}px`;
+        textarea.style.overflowY = "hidden";
+      } else {
+        textarea.style.height = `${maxHeight}px`;
+        textarea.style.overflowY = "auto";
+      }
     }
   };
 
@@ -50,7 +59,7 @@ export default function AutoResizeTextarea({
       onChange={handleChange}
       onKeyDown={handleKeyDown}
       placeholder={placeholder}
-      className={`w-full text-sm resize-none overflow-hidden min-h-[50px] max-h-[200px] rounded-lg outline-none border-none ${className}`}
+      className={`w-full text-sm resize-none min-h-[50px] max-h-[200px] rounded-lg outline-none border-none ${className}`}
       rows={1}
     />
   );
