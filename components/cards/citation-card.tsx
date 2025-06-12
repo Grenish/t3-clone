@@ -1,5 +1,5 @@
 import { ExternalLink, Search, Clock } from "lucide-react";
-import { useTheme } from "@/util/theme-switcher";
+import { useTheme } from "@/util/theme-provider";
 
 interface Citation {
   title: string;
