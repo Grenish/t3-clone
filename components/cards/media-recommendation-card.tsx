@@ -1,6 +1,6 @@
 import React from 'react';
 import { Star, Play, Clock } from 'lucide-react';
-import { useTheme } from '@/util/theme-switcher';
+import { useTheme } from '@/util/theme-provider';
 
 interface MediaRecommendationCardProps {
   title: string;
