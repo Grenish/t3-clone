@@ -1,33 +1,44 @@
 "use client";
 
 import { useState } from "react";
-import { useTheme } from "@/util/theme-switcher";
+import { useTheme } from "@/util/theme-provider";
 
 const promptSuggestions = {
-  Generate: [
-    "Generate code for data processing",
-    "Generate product development ideas",
-    "Generate market research summary",
-    "Generate user engagement report",
+  Ask: [
+    "Explain this code snippet step-by-step",
+    "What's the best tech stack for a real-time chat app?",
+    "Summarize this article in under 100 words",
+    "Compare Firebase vs Supabase for authentication",
   ],
-  Create: [
-    "Create mobile app design",
-    "Create Q4 business plan",
-    "Create marketing campaign content",
-    "Create team workflow automation",
+  
+  Code: [
+    "Generate a REST API using Express and MongoDB",
+    "Convert this JavaScript to TypeScript",
+    "Debug this React component for infinite re-render",
+    "Write a function to validate user input in a form",
   ],
-  Draft: [
-    "Draft stakeholder email",
-    "Draft project proposal",
-    "Draft customer response",
-    "Draft API documentation",
+  
+  Write: [
+    "Draft a polite client follow-up email",
+    "Write a product description for a smart home device",
+    "Create a blog outline about Next.js performance tips",
+    "Generate terms and conditions for a SaaS product",
   ],
-  "Create Image": [
-    "Create futuristic city skyline",
-    "Create mountain landscape scene",
-    "Create urban street at night",
-    "Create cozy coffee shop interior",
+  
+  Design: [
+    "Create a modern hero section for a tech startup site",
+    "Generate a dark-themed dashboard UI layout",
+    "Design a pricing card component with Tailwind CSS",
+    "Create a minimal portfolio layout using Flexbox",
+  ],
+  
+  Visualize: [
+    "Create a high-tech AI lab scene with holograms",
+    "Visualize a fantasy castle at sunset",
+    "Design an urban rooftop view with neon signs",
+    "Create a futuristic control panel UI",
   ]
+  
 };
 
 interface PromptBoxProps {
