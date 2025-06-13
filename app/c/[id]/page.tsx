@@ -31,7 +31,6 @@ import { WeatherCard } from "@/components/cards/weather-card";
 import StockCard from "@/components/cards/stock-card";
 import ImageLoadingCard from "@/components/cards/image-loading-card";
 import MediaRecommendationCard from "@/components/cards/media-recommendation-card";
-import CitationCard from "@/components/cards/citation-card";
 
 export default function ChatPage() {
   const params = useParams();
@@ -39,7 +38,7 @@ export default function ChatPage() {
   const searchParams = useSearchParams();
   const chatId = params.id as string;
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const [hasInitialized, setHasInitialized] = useState(false);
+  const initialMessageProcessedRef = useRef(false); // Changed from hasInitialized state
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
   const [uploadedFiles, setUploadedFiles] = useState<File[]>([]);
   const [selectedTool, setSelectedTool] = useState<{
@@ -69,11 +68,12 @@ export default function ChatPage() {
     append,
   } = useChat({
     api: "/api/chat",
-    headers: {
-      "x-api-key": process.env.NEXT_PUBLIC_GOOGLE_API_KEY || "",
-    },
     body: {
       persona: selectedPersona,
+    },
+    onError: (error) => {
+      console.error("Chat processing error:", error);
+      // You could set a state here to display an error message to the user
     },
   });
 
@@ -101,12 +101,12 @@ export default function ChatPage() {
 
       // Ensure input container starts at its natural position
       if (inputContainerRef.current) {
-        gsap.set(inputContainerRef.current, { 
+        gsap.set(inputContainerRef.current, {
           clearProps: "all",
           position: "relative",
           bottom: "auto",
-          left: "auto", 
-          right: "auto"
+          left: "auto",
+          right: "auto",
         });
       }
 
@@ -118,7 +118,7 @@ export default function ChatPage() {
             y: 0,
             opacity: 1,
             duration: 0.5,
-            ease: "power2.out"
+            ease: "power2.out",
           });
         }
 
@@ -129,34 +129,51 @@ export default function ChatPage() {
             y: 0,
             duration: 0.4,
             ease: "power2.out",
-            delay: 0.2
+            delay: 0.2,
           });
         }
       }, 50);
 
-      // Clean up URL
+      // Clean up URL - remove all search params, keep only the chat ID
       const url = new URL(window.location.href);
-      url.searchParams.delete("transition");
+      url.search = "";
       window.history.replaceState({}, "", url.toString());
     }
   }, [searchParams]);
 
+  // Log messages for debugging purposes
+  useEffect(() => {
+    console.log("Chat messages updated:", messages);
+  }, [messages]);
+
   // Get initial message from URL params
   useEffect(() => {
-    if (hasInitialized) return;
+    const initialMessage = searchParams.get("message");
 
-    const urlParams = new URLSearchParams(window.location.search);
-    const initialMessage = urlParams.get("message");
+    if (
+      initialMessage &&
+      messages.length === 0 &&
+      !initialMessageProcessedRef.current
+    ) {
+      initialMessageProcessedRef.current = true; // Set ref to true once processed
 
-    if (initialMessage && messages.length === 0) {
-      setHasInitialized(true);
+      // Increment API usage here since we're making the actual API call
+      if ((window as any).incrementApiUsage) {
+        (window as any).incrementApiUsage();
+      }
+
       // Use the append function to properly handle the conversation
       append({
         role: "user",
         content: initialMessage,
       });
+
+      // Clean up URL after processing initial message
+      const url = new URL(window.location.href);
+      url.searchParams.delete("message");
+      window.history.replaceState({}, "", url.toString());
     }
-  }, [messages.length, hasInitialized, append]);
+  }, [searchParams, messages, append]); // Updated dependencies
 
   // Auto-scroll to bottom
   useEffect(() => {
@@ -190,12 +207,11 @@ export default function ChatPage() {
   const handleBackToHome = () => {
     if (!isTransitioningBack) {
       setIsTransitioningBack(true);
-
       const tl = gsap.timeline({
         onComplete: () => {
           // Navigate back to home page - layout context will handle which layout to show
           router.push("/");
-        },
+        }, // Navigate back to home page - layout context will handle which layout to show
       });
 
       // Animate header out
@@ -223,18 +239,15 @@ export default function ChatPage() {
       );
     }
   };
-
   const handleCopyMessage = (content: string, messageId: string) => {
     navigator.clipboard.writeText(content);
     setCopiedMessageId(messageId);
     setTimeout(() => setCopiedMessageId(null), 2000);
   };
-
   const handleRetryMessage = (messageIndex: number) => {
     // Remove messages after the retry point and regenerate
     const messagesToKeep = messages.slice(0, messageIndex);
     setMessages(messagesToKeep);
-
     // Find the last user message to retry from
     const lastUserMessage = messagesToKeep
       .reverse()
@@ -259,23 +272,20 @@ export default function ChatPage() {
   const handleFileSelect = (file: File) => {
     setUploadedFiles((prev) => [...prev, file]);
   };
-
   const handleRemoveFile = (index: number) => {
     setUploadedFiles((prev) => prev.filter((_, i) => i !== index));
   };
-
   const handleToolSelect = (tool: string, persona?: string) => {
     setSelectedTool({ tool, persona });
     if (persona) {
       setSelectedPersona(persona);
     }
   };
-
   const handleRemoveTool = () => {
     setSelectedTool(null);
     // Clear persona when removing tool
     setSelectedPersona(null);
-  };
+  }; // removing tool
 
   const getDisplayFileName = (fileName: string) => {
     const words = fileName.split(".");
@@ -287,26 +297,11 @@ export default function ChatPage() {
         : nameWithoutExtension;
     return `${truncatedName}.${extension}`;
   };
-
   const renderToolResult = (toolInvocation: any) => {
     const { toolName, result } = toolInvocation;
-
     switch (toolName) {
-      case "webSearch":
-        if (!result || !result.success) return null;
-        return (
-          <CitationCard
-            query={result.query}
-            citations={result.citations || []}
-            totalResults={result.totalResults}
-            searchTime={result.searchTime}
-            searchType={result.searchType}
-          />
-        );
       case "generateProductCard":
         if (!result) return null;
-
-        // Handle array of products
         if (Array.isArray(result)) {
           return (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -322,8 +317,8 @@ export default function ChatPage() {
                   reviewCount={product.reviewCount}
                   currency={product.currency}
                   imageUrl={product.imageUrl}
-                  platform={product.platform}
                   imageAlt={product.imageAlt}
+                  platform={product.platform}
                 />
               ))}
             </div>
@@ -341,8 +336,8 @@ export default function ChatPage() {
             reviewCount={result.reviewCount}
             currency={result.currency}
             imageUrl={result.imageUrl}
-            platform={result.platform}
             imageAlt={result.imageAlt}
+            platform={result.platform}
           />
         );
       case "generateWeatherCard":
@@ -410,7 +405,6 @@ export default function ChatPage() {
         );
       case "generateMediaRecommendations":
         if (!result) return null;
-
         if (Array.isArray(result)) {
           return (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -448,18 +442,20 @@ export default function ChatPage() {
 
   return (
     <PageTransition skipAnimation={isFromTransition}>
-      <div className={`flex flex-col h-screen ${
-        isDarkMode 
-          ? 'bg-gradient-to-b from-[#1B1B1B] to-[#003153]' 
-          : 'bg-gradient-to-b from-[#fdfbfb] to-[#ebedee]'
-      }`}>
+      <div
+        className={`flex flex-col h-screen ${
+          isDarkMode
+            ? "bg-gradient-to-b from-[#1B1B1B] to-[#003153]"
+            : "bg-gradient-to-b from-[#fdfbfb] to-[#ebedee]"
+        }`}
+      >
         {/* Header */}
         <div
           ref={headerRef}
           className={`border-b px-4 py-3 ${
             isDarkMode
-              ? 'bg-gray-800 border-gray-700'
-              : 'bg-white border-gray-200'
+              ? "bg-gray-800 border-gray-700"
+              : "bg-white border-gray-200"
           }`}
         >
           <div className="max-w-4xl mx-auto flex items-center gap-3">
@@ -468,18 +464,21 @@ export default function ChatPage() {
               disabled={isTransitioningBack}
               className={`p-2 rounded-lg transition-colors disabled:opacity-50 ${
                 isDarkMode
-                  ? 'hover:bg-gray-700 text-gray-300'
-                  : 'hover:bg-gray-100 text-gray-600'
+                  ? "hover:bg-gray-700 text-gray-300"
+                  : "hover:bg-gray-100 text-gray-600"
               }`}
             >
               <ArrowLeft className="w-5 h-5" />
             </button>
-            <h1 className={`text-lg font-semibold ${
-              isDarkMode ? 'text-white' : 'text-gray-900'
-            }`}>T3 Chat</h1>
+            <h1
+              className={`text-lg font-semibold ${
+                isDarkMode ? "text-white" : "text-gray-900"
+              }`}
+            >
+              T3 Chat
+            </h1>
           </div>
         </div>
-
         {/* Messages */}
         <div className="flex-1 overflow-y-auto px-4 py-6">
           <div
@@ -494,19 +493,26 @@ export default function ChatPage() {
                 }`}
               >
                 {message.role === "user" ? (
-                  <div className={`max-w-2xl px-4 py-3 rounded-2xl ${
-                    isDarkMode
-                      ? 'bg-blue-600 text-white'
-                      : 'bg-gray-900 text-white'
-                  }`}>
+                  <div
+                    className={`max-w-2xl px-4 py-3 rounded-2xl ${
+                      isDarkMode
+                        ? "bg-blue-600 text-white"
+                        : "bg-gray-900 text-white"
+                    }`}
+                  >
                     <MessageContent content={message.content} isUser={true} />
                   </div>
                 ) : (
                   <div className="w-full group">
-                    <div className={`${
-                      isDarkMode ? 'text-gray-100' : 'text-gray-900'
-                    }`}>
-                      <MessageContent content={message.content} isUser={false} />
+                    <div
+                      className={`${
+                        isDarkMode ? "text-gray-100" : "text-gray-900"
+                      }`}
+                    >
+                      <MessageContent
+                        content={message.content}
+                        isUser={false}
+                      />
                     </div>
 
                     {/* Render tool invocations */}
@@ -529,12 +535,12 @@ export default function ChatPage() {
                         }
                         className={`p-1.5 rounded-md transition-all duration-200 cursor-pointer transform hover:scale-110 active:scale-95 ${
                           copiedMessageId === (message.id || `${index}`)
-                            ? isDarkMode 
-                              ? "bg-green-900/30 text-green-400" 
+                            ? isDarkMode
+                              ? "bg-green-900/30 text-green-400"
                               : "bg-green-100 text-green-600"
                             : isDarkMode
-                              ? "hover:bg-gray-700 text-gray-400"
-                              : "hover:bg-gray-100 text-gray-600"
+                            ? "hover:bg-gray-700 text-gray-400"
+                            : "hover:bg-gray-100 text-gray-600"
                         }`}
                         title={
                           copiedMessageId === (message.id || `${index}`)
@@ -548,8 +554,8 @@ export default function ChatPage() {
                         onClick={() => handleRetryMessage(index)}
                         className={`p-1.5 rounded-md transition-all duration-200 cursor-pointer transform hover:scale-110 active:scale-95 hover:rotate-180 ${
                           isDarkMode
-                            ? 'hover:bg-gray-700 text-gray-400'
-                            : 'hover:bg-gray-100 text-gray-600'
+                            ? "hover:bg-gray-700 text-gray-400"
+                            : "hover:bg-gray-100 text-gray-600"
                         }`}
                         title="Retry"
                       >
@@ -561,8 +567,8 @@ export default function ChatPage() {
                         }
                         className={`p-1.5 rounded-md transition-all duration-200 cursor-pointer transform hover:scale-110 active:scale-95 ${
                           isDarkMode
-                            ? 'hover:bg-green-900/30 hover:text-green-400 text-gray-400'
-                            : 'hover:bg-green-50 hover:text-green-600 text-gray-600'
+                            ? "hover:bg-green-900/30 hover:text-green-400 text-gray-400"
+                            : "hover:bg-green-50 hover:text-green-600 text-gray-600"
                         }`}
                         title="Good response"
                       >
@@ -574,8 +580,8 @@ export default function ChatPage() {
                         }
                         className={`p-1.5 rounded-md transition-all duration-200 cursor-pointer transform hover:scale-110 active:scale-95 ${
                           isDarkMode
-                            ? 'hover:bg-red-900/30 hover:text-red-400 text-gray-400'
-                            : 'hover:bg-red-50 hover:text-red-600 text-gray-600'
+                            ? "hover:bg-red-900/30 hover:text-red-400 text-gray-400"
+                            : "hover:bg-red-50 hover:text-red-600 text-gray-600"
                         }`}
                         title="Bad response"
                       >
@@ -591,18 +597,20 @@ export default function ChatPage() {
               <div className="flex justify-start">
                 <div className="w-full">
                   <div className="flex space-x-1">
-                    <div className={`w-2 h-2 rounded-full animate-bounce ${
-                      isDarkMode ? 'bg-gray-500' : 'bg-gray-400'
-                    }`}></div>
                     <div
                       className={`w-2 h-2 rounded-full animate-bounce ${
-                        isDarkMode ? 'bg-gray-500' : 'bg-gray-400'
+                        isDarkMode ? "bg-gray-500" : "bg-gray-400"
+                      }`}
+                    ></div>
+                    <div
+                      className={`w-2 h-2 rounded-full animate-bounce ${
+                        isDarkMode ? "bg-gray-500" : "bg-gray-400"
                       }`}
                       style={{ animationDelay: "0.1s" }}
                     ></div>
                     <div
                       className={`w-2 h-2 rounded-full animate-bounce ${
-                        isDarkMode ? 'bg-gray-500' : 'bg-gray-400'
+                        isDarkMode ? "bg-gray-500" : "bg-gray-400"
                       }`}
                       style={{ animationDelay: "0.2s" }}
                     ></div>
@@ -616,17 +624,16 @@ export default function ChatPage() {
         </div>
 
         {/* Input */}
-        <div
-          ref={inputContainerRef}
-          className="px-4 py-4"
-        >
+        <div ref={inputContainerRef} className="px-4 py-4">
           <div className="max-w-4xl mx-auto">
             <form onSubmit={handleSubmit}>
-              <div className={`rounded-2xl border shadow-sm p-4 ${
-                isDarkMode
-                  ? 'bg-gray-800 border-gray-700'
-                  : 'bg-white border-gray-200'
-              }`}>
+              <div
+                className={`rounded-2xl border shadow-sm p-4 ${
+                  isDarkMode
+                    ? "bg-gray-800 border-gray-700"
+                    : "bg-white border-gray-200"
+                }`}
+              >
                 {uploadedFiles.length > 0 && (
                   <div className="mb-4 flex flex-wrap gap-2">
                     {uploadedFiles.map((file, index) => (
@@ -634,8 +641,8 @@ export default function ChatPage() {
                         key={index}
                         className={`flex items-center gap-2 px-3 py-2 rounded-lg border max-w-fit ${
                           isDarkMode
-                            ? 'bg-gray-700 border-gray-600'
-                            : 'bg-gray-50 border-gray-100'
+                            ? "bg-gray-700 border-gray-600"
+                            : "bg-gray-50 border-gray-100"
                         }`}
                       >
                         {file.type.startsWith("image/") ? (
@@ -647,21 +654,25 @@ export default function ChatPage() {
                             className="w-6 h-6 object-cover rounded border"
                           />
                         ) : (
-                          <FileText className={`w-4 h-4 flex-shrink-0 ${
-                            isDarkMode ? 'text-gray-400' : 'text-gray-500'
-                          }`} />
+                          <FileText
+                            className={`w-4 h-4 flex-shrink-0 ${
+                              isDarkMode ? "text-gray-400" : "text-gray-500"
+                            }`}
+                          />
                         )}
-                        <span className={`text-xs font-medium ${
-                          isDarkMode ? 'text-gray-300' : 'text-gray-600'
-                        }`}>
+                        <span
+                          className={`text-xs font-medium ${
+                            isDarkMode ? "text-gray-300" : "text-gray-600"
+                          }`}
+                        >
                           {getDisplayFileName(file.name)}
                         </span>
                         <button
                           onClick={() => handleRemoveFile(index)}
                           className={`flex-shrink-0 transition-colors ${
                             isDarkMode
-                              ? 'text-gray-500 hover:text-gray-300'
-                              : 'text-gray-400 hover:text-gray-600'
+                              ? "text-gray-500 hover:text-gray-300"
+                              : "text-gray-400 hover:text-gray-600"
                           }`}
                         >
                           <X className="w-3 h-3" />
@@ -703,15 +714,14 @@ export default function ChatPage() {
                           onClick={() => setShowAddMenu(!showAddMenu)}
                           className={`text-sm flex items-center gap-2 px-3 py-2 rounded-lg border transition-all duration-200 cursor-pointer ${
                             isDarkMode
-                              ? 'bg-gray-700 hover:bg-gray-600 text-gray-300 hover:text-gray-100 border-gray-600 hover:border-gray-500'
-                              : 'bg-gray-50 hover:bg-gray-100 text-gray-600 hover:text-gray-800 border-gray-200 hover:border-gray-300'
+                              ? "bg-gray-700 hover:bg-gray-600 text-gray-300 hover:text-gray-100 border-gray-600 hover:border-gray-500"
+                              : "bg-gray-50 hover:bg-gray-100 text-gray-600 hover:text-gray-800 border-gray-200 hover:border-gray-300"
                           }`}
                         >
                           <Plus className="w-4 h-4" />
                           <span className="font-medium">Add</span>
                         </button>
                       </Tooltip>
-
                       <AddMenu
                         isOpen={showAddMenu}
                         onClose={() => setShowAddMenu(false)}
@@ -727,15 +737,14 @@ export default function ChatPage() {
                           onClick={() => setShowToolsMenu(!showToolsMenu)}
                           className={`text-sm flex items-center gap-2 px-3 py-2 rounded-lg border transition-all duration-200 cursor-pointer ${
                             isDarkMode
-                              ? 'bg-gray-700 hover:bg-gray-600 text-gray-300 hover:text-gray-100 border-gray-600 hover:border-gray-500'
-                              : 'bg-gray-50 hover:bg-gray-100 text-gray-600 hover:text-gray-800 border-gray-200 hover:border-gray-300'
+                              ? "bg-gray-700 hover:bg-gray-600 text-gray-300 hover:text-gray-100 border-gray-600 hover:border-gray-500"
+                              : "bg-gray-50 hover:bg-gray-100 text-gray-600 hover:text-gray-800 border-gray-200 hover:border-gray-300"
                           }`}
                         >
                           <Settings2 className="w-4 h-4" />
                           <span className="font-medium">Tools</span>
                         </button>
                       </Tooltip>
-
                       <ToolsMenu
                         isOpen={showToolsMenu}
                         onClose={() => setShowToolsMenu(false)}
@@ -745,14 +754,18 @@ export default function ChatPage() {
                     </div>
 
                     {selectedTool && (
-                      <div className={`flex items-center gap-2 px-3 py-2 rounded-lg border ${
-                        isDarkMode
-                          ? 'bg-blue-900/50 border-blue-700'
-                          : 'bg-blue-50 border-blue-200'
-                      }`}>
-                        <span className={`text-sm font-medium ${
-                          isDarkMode ? 'text-blue-300' : 'text-blue-700'
-                        }`}>
+                      <div
+                        className={`flex items-center gap-2 px-3 py-2 rounded-lg border ${
+                          isDarkMode
+                            ? "bg-blue-900/50 border-blue-700"
+                            : "bg-blue-50 border-blue-200"
+                        }`}
+                      >
+                        <span
+                          className={`text-sm font-medium ${
+                            isDarkMode ? "text-blue-300" : "text-blue-700"
+                          }`}
+                        >
                           {selectedTool.persona
                             ? selectedTool.persona
                             : selectedTool.tool}
@@ -761,8 +774,8 @@ export default function ChatPage() {
                           onClick={handleRemoveTool}
                           className={`transition-colors ${
                             isDarkMode
-                              ? 'text-blue-400 hover:text-blue-300'
-                              : 'text-blue-400 hover:text-blue-600'
+                              ? "text-blue-400 hover:text-blue-300"
+                              : "text-blue-400 hover:text-blue-600"
                           }`}
                         >
                           <X className="w-3 h-3" />
@@ -776,8 +789,8 @@ export default function ChatPage() {
                     disabled={!input.trim() || isLoading}
                     className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors duration-200 ${
                       isDarkMode
-                        ? 'bg-white hover:bg-gray-100 disabled:bg-gray-600 disabled:cursor-not-allowed text-gray-900 disabled:text-gray-400'
-                        : 'bg-gray-900 hover:bg-gray-800 disabled:bg-gray-400 disabled:cursor-not-allowed text-white'
+                        ? "bg-white hover:bg-gray-100 disabled:bg-gray-600 disabled:cursor-not-allowed text-gray-900 disabled:text-gray-400"
+                        : "bg-gray-900 hover:bg-gray-800 disabled:bg-gray-400 disabled:cursor-not-allowed text-white"
                     }`}
                   >
                     <Send className="w-5 h-5" />
