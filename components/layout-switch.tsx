@@ -181,7 +181,7 @@ export default function LayoutSwitch() {
   }
 
   return (
-    <div className="fixed top-20 right-4 z-50">
+    <div >
       <div className="relative flex items-center justify-center">
         {isOpen && (
           <div className="absolute -top-8 left-0 right-0 flex justify-center">
