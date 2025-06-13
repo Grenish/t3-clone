@@ -10,10 +10,15 @@ import {
   ArrowUp,
   CircleFadingArrowUp,
   ChevronRight,
+  LogIn,
+  UserPlus,
+  AlertTriangle,
 } from "lucide-react";
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useTheme } from "@/util/theme-provider";
+import { supabase } from "@/lib/supabase";
+import { Button } from "@/components/ui/button";
 
 export default function DefaultPage() {
   const { isDarkMode } = useTheme();
@@ -28,10 +33,43 @@ export default function DefaultPage() {
     persona?: string;
     tool?: string;
   } | null>(null);
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
+  const [showLimitModal, setShowLimitModal] = useState(false);
+  const [showLimitWarning, setShowLimitWarning] = useState(false);
 
   const formRef = useRef<HTMLDivElement>(null);
   const addButtonRef = useRef<HTMLButtonElement>(null);
   const toolsButtonRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    const checkAuth = async () => {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      setIsAuthenticated(!!user);
+    };
+
+    checkAuth();
+
+    // Listen for auth changes
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((event, session) => {
+      setIsAuthenticated(!!session);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  // Show loading while checking authentication
+  if (isAuthenticated === null) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
+      </div>
+    );
+  }
 
   const defaultPromptSuggestions = [
     "Explain how an AI can automate customer support.",
@@ -51,13 +89,27 @@ export default function DefaultPage() {
     e.preventDefault();
     if (!textareaValue.trim() || isTransitioning) return;
 
+    // Check if user can make API call
+    if (!(window as any).canMakeApiCall?.()) {
+      if (!isAuthenticated) {
+        setShowLimitWarning(true);
+      } else {
+        setShowLimitModal(true);
+      }
+      return;
+    }
+
     setIsTransitioning(true);
+    setShowLimitWarning(false); // Hide warning when sending
+
+    // Don't increment API usage here - let the chat page handle it
+    // (window as any).incrementApiUsage?.();
 
     try {
       // Generate a unique chat ID
       const chatId = Date.now().toString();
 
-      // Create URL with message and persona
+      // Create URL with message and persona for initial processing
       const searchParams = new URLSearchParams({
         message: textareaValue.trim(),
         transition: "true",
@@ -68,7 +120,7 @@ export default function DefaultPage() {
         searchParams.set("persona", selectedTool.persona);
       }
 
-      // Navigate to chat page
+      // Navigate to chat page - chat page will clean up URL after processing
       router.push(`/c/${chatId}?${searchParams.toString()}`);
     } catch (error) {
       console.error("Error navigating to chat:", error);
@@ -95,6 +147,70 @@ export default function DefaultPage() {
   const getDisplayFileName = (name: string): string => {
     return name.length > 20 ? name.substring(0, 20) + "..." : name;
   };
+
+  const LimitModal = () => (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+      <div
+        className={`p-6 rounded-lg max-w-md w-full mx-4 ${
+          isDarkMode ? "bg-gray-800" : "bg-white"
+        }`}
+      >
+        <h3
+          className={`text-lg font-semibold mb-4 ${
+            isDarkMode ? "text-white" : "text-gray-900"
+          }`}
+        >
+          Daily Limit Reached
+        </h3>
+        <p
+          className={`mb-6 ${
+            isDarkMode ? "text-gray-300" : "text-gray-600"
+          }`}
+        >
+          {isAuthenticated
+            ? "You've reached your daily API limit. Upgrade to Pro for 50 daily requests."
+            : "You've used all 5 free requests today. Sign in to get 20 daily requests or create an account for more features."}
+        </p>
+        <div className="flex gap-3">
+          {!isAuthenticated && (
+            <>
+              <Button
+                onClick={() => router.push("/login")}
+                className="flex-1"
+              >
+                <LogIn className="w-4 h-4 mr-2" />
+                Sign In
+              </Button>
+              <Button
+                onClick={() => router.push("/signup")}
+                variant="outline"
+                className="flex-1"
+              >
+                <UserPlus className="w-4 h-4 mr-2" />
+                Sign Up
+              </Button>
+            </>
+          )}
+          {isAuthenticated && (
+            <Button
+              onClick={() => {
+                /* Handle pro upgrade */
+              }}
+              className="flex-1"
+            >
+              Upgrade to Pro
+            </Button>
+          )}
+          <Button
+            onClick={() => setShowLimitModal(false)}
+            variant="outline"
+          >
+            Cancel
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -143,6 +259,42 @@ export default function DefaultPage() {
 
       <div className="px-4">
         <div className="max-w-3xl mx-auto">
+          {/* Show limit warning above input when needed */}
+          {showLimitWarning && !isAuthenticated && (
+            <div className={`mb-4 p-4 rounded-xl border flex items-center gap-3 ${
+              isDarkMode
+                ? "bg-orange-900/20 border-orange-800 text-orange-200"
+                : "bg-orange-50 border-orange-200 text-orange-800"
+            }`}>
+              <AlertTriangle className="w-5 h-5 flex-shrink-0" />
+              <div className="flex-1">
+                <p className="text-sm font-medium">
+                  You've hit your daily limit of 5 requests.
+                </p>
+                <p className="text-xs mt-1 opacity-90">
+                  Sign in to get 20 daily requests or create an account for more features.
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  onClick={() => router.push('/login')}
+                  className="text-xs"
+                >
+                  Sign In
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => router.push('/signup')}
+                  className="text-xs"
+                >
+                  Sign Up
+                </Button>
+              </div>
+            </div>
+          )}
+
           <form onSubmit={handleSend}>
             <div
               className={`rounded-t-2xl border shadow-sm p-4 ${
@@ -299,6 +451,8 @@ export default function DefaultPage() {
           </form>
         </div>
       </div>
+
+      {showLimitModal && <LimitModal />}
     </div>
   );
 }
