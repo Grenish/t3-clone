@@ -3,7 +3,7 @@ import { mrBeastPrompt } from "@/prompt/persona/mrbeast-prompt"
 import { taylorSwiftPrompt } from "@/prompt/persona/taylor-swift-prompt"
 import { sundarPichaiPrompt } from "@/prompt/persona/sundar-pichai-prompt"
 import { createGoogleGenerativeAI } from "@ai-sdk/google"
-import { streamText, generateText, tool } from "ai"
+import { streamText, generateText, tool, experimental_generateImage as generateImage } from "ai"
 import { z } from "zod"
 
 export const maxDuration = 30
@@ -20,11 +20,13 @@ export async function POST(req: Request) {
 
         const model = google("gemini-2.0-flash")
 
+        const imageModel = google("gemini-2.0-flash-exp")
+
         console.log("Model created successfully")
 
         // Select system prompt based on persona
         let systemPrompt = defaultPrompt()
-        
+
         if (persona) {
             console.log("Using persona:", persona)
             switch (persona.toLowerCase()) {
@@ -293,14 +295,14 @@ export async function POST(req: Request) {
                             const generateChartData = (currentPrice: number, changePercent: number) => {
                                 const data = []
                                 let basePrice = currentPrice / (1 + changePercent / 100)
-                                
+
                                 for (let i = 0; i < 30; i++) {
                                     const volatility = (Math.random() - 0.5) * 0.05
                                     const trend = (changePercent / 100) * (i / 30)
                                     basePrice = basePrice * (1 + trend + volatility)
                                     data.push(Number(basePrice.toFixed(2)))
                                 }
-                                
+
                                 data[data.length - 1] = currentPrice
                                 return data
                             }
@@ -389,8 +391,7 @@ export async function POST(req: Request) {
                         console.log("Executing generateImage tool:", params)
 
                         try {
-                            // Create image generation model
-                            const imageModel = google("gemini-2.0-flash-exp")
+                            const imageModel = google("gemini-2.0-flash-preview-image-generation")
 
                             console.log("Generating image with prompt:", params.prompt)
 
@@ -482,121 +483,6 @@ export async function POST(req: Request) {
                             }
                         }
                     },
-                }),
-                generateMediaRecommendations: tool({
-                    description: "Generate media recommendation(s) based on user preferences. Can generate multiple recommendations if count > 1.",
-                    parameters: z.object({
-                        count: z.number().min(1).max(10).optional().describe("Number of recommendations to generate").default(1),
-                        title: z.string().describe("Media title"),
-                        genre: z.string().describe("Media genre"),
-                        platform: z.string().describe("Streaming platform"),
-                        rating: z.number().min(0).max(5).describe("Rating out of 5"),
-                        duration: z.string().optional().describe("Duration or runtime"),
-                        imageUrl: z.string().describe("Media poster or cover image URL"),
-                        type: z.enum(["movie", "tv", "music"]).describe("Type of media"),
-                    }),
-                    execute: async (params) => {
-                        console.log("Executing generateMediaRecommendations tool:", params)
-
-                        if (params.count === 1) {
-                            return params
-                        }
-
-                        // Generate array of recommendations
-                        const recommendations = []
-                        for (let i = 0; i < params.count; i++) {
-                            recommendations.push({
-                                ...params,
-                                title: `${params.title} ${i + 1}`,
-                            })
-                        }
-
-                        return recommendations
-                    },
-                }),
-                webSearch: tool({
-                    description: "Search the web for current information, news, facts, or any topic. Use this tool to get up-to-date information and then incorporate the findings naturally into your response.",
-                    parameters: z.object({
-                        query: z.string().describe("Search query to find current information about"),
-                        maxResults: z.number().min(1).max(10).default(5).describe("Maximum number of search results to analyze"),
-                    }),
-                    execute: async (params) => {
-                        console.log("Executing webSearch tool:", params)
-
-                        try {
-                            const apiKey = process.env.GOOGLE_SEARCH_API_KEY
-
-                            if (!apiKey) {
-                                throw new Error("Google Search API key not configured")
-                            }
-
-                            const searchEngineId = process.env.GOOGLE_SEARCH_ENGINE_ID
-
-                            const searchUrl = `https://www.googleapis.com/customsearch/v1?key=${apiKey}&cx=${searchEngineId}&q=${encodeURIComponent(params.query)}&num=${params.maxResults}`
-
-                            console.log("Searching for:", params.query)
-
-                            const response = await fetch(searchUrl)
-                            const data = await response.json()
-
-                            if (!response.ok) {
-                                console.error("Search API error:", data)
-                                throw new Error(data.error?.message || "Search API request failed")
-                            }
-
-                            if (!data.items || data.items.length === 0) {
-                                return {
-                                    success: false,
-                                    message: "No search results found for this query.",
-                                    query: params.query,
-                                    citations: []
-                                }
-                            }
-
-                            // Format search results for AI processing and citations
-                            const searchResults = data.items.map((item: any, index: number) => ({
-                                title: item.title,
-                                snippet: item.snippet,
-                                url: item.link,
-                                source: item.displayLink,
-                                position: index + 1
-                            }))
-
-                            // Create formatted content for AI to use (without citations)
-                            const searchContent = searchResults.map((result: any) => 
-                                `${result.title}\n${result.snippet}\nSource: ${result.source}`
-                            ).join('\n\n')
-
-                            // Create citations for the card
-                            const citations = searchResults.map((result: any) => ({
-                                title: result.title,
-                                url: result.url,
-                                source: result.source,
-                                snippet: result.snippet
-                            }))
-
-                            return {
-                                success: true,
-                                query: params.query,
-                                results: searchResults,
-                                searchContent: searchContent,
-                                citations: citations,
-                                totalResults: parseInt(data.searchInformation?.totalResults || "0"),
-                                searchTime: parseFloat(data.searchInformation?.searchTime || "0")
-                            }
-
-                        } catch (error) {
-                            console.error("Google Search API error:", error)
-
-                            return {
-                                success: false,
-                                message: "Unable to perform web search at this time.",
-                                query: params.query,
-                                citations: [],
-                                error: error instanceof Error ? error.message : "Failed to perform web search"
-                            }
-                        }
-                    }
                 })
             },
             system: systemPrompt,
