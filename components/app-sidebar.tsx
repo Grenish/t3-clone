@@ -1,7 +1,14 @@
 "use client";
 
 import * as React from "react";
-import { Plus, Search, MessageSquare, Clock, MoreHorizontal, Trash2 } from "lucide-react";
+import {
+  Plus,
+  Search,
+  MessageSquare,
+  Clock,
+  MoreHorizontal,
+  Trash2,
+} from "lucide-react";
 
 import {
   Sidebar,
@@ -19,6 +26,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { UserButton } from "@/components/user-button";
+import { Limiter } from "@/components/limiter";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -110,7 +118,11 @@ export function AppSidebar() {
                     <SidebarMenuAction className="opacity-0 group-hover:opacity-100 transition-opacity">
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon" className="h-6 w-6">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-6 w-6"
+                          >
                             <MoreHorizontal className="h-3 w-3" />
                           </Button>
                         </DropdownMenuTrigger>
@@ -128,10 +140,14 @@ export function AppSidebar() {
                 <div className="px-4 py-8 text-center">
                   <MessageSquare className="w-8 h-8 text-sidebar-foreground/30 mx-auto mb-2" />
                   <p className="text-sm text-sidebar-foreground/60">
-                    {searchQuery ? "No conversations found" : "No conversations yet"}
+                    {searchQuery
+                      ? "No conversations found"
+                      : "No conversations yet"}
                   </p>
                   <p className="text-xs text-sidebar-foreground/40 mt-1">
-                    {searchQuery ? "Try a different search term" : "Start a new chat to begin"}
+                    {searchQuery
+                      ? "Try a different search term"
+                      : "Start a new chat to begin"}
                   </p>
                 </div>
               )}
@@ -140,12 +156,11 @@ export function AppSidebar() {
         </SidebarGroup>
       </SidebarContent>
 
-      <SidebarFooter className="border-t border-sidebar-border/50 p-3">
-        <UserButton
-          name="John Doe"
-          email="john@example.com"
-          isPro={false}
-        />
+      <SidebarFooter className="border-t border-sidebar-border/50">
+        <Limiter className="border-b border-sidebar-border/50" />
+        <div className="p-3">
+          <UserButton isPro={true} />
+        </div>
       </SidebarFooter>
     </Sidebar>
   );
