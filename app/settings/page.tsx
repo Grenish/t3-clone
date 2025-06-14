@@ -4,6 +4,8 @@ import { Limiter } from "@/components/limiter";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import ThemeSwitch from "@/components/theme-switch";
 import LayoutSwitch from "@/components/layout-switch";
+import { useAuth } from "@/hooks/use-auth";
+import { supabase } from "@/lib/supabase";
 import {
   Zap,
   TrendingUp,
@@ -19,12 +21,35 @@ import {
   Eye,
   ArrowLeft,
   Menu,
+  Loader2,
+  CheckCircle,
+  XCircle,
+  FileText,
 } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+
+interface UserPreferences {
+  display_name?: string;
+  occupation?: string;
+  traits?: string[];
+  additional_info?: string;
+}
+
+interface UserFile {
+  id: string;
+  file_name: string;
+  file_size: number;
+  type: "image" | "document";
+  created_at: string;
+  conversation_title: string;
+}
 
 export default function SettingsPage() {
   const router = useRouter();
+  const { user, loading: authLoading } = useAuth();
+
+  // Form state
   const [userName, setUserName] = useState("");
   const [userOccupation, setUserOccupation] = useState("");
   const [traitInput, setTraitInput] = useState("");
@@ -37,7 +62,224 @@ export default function SettingsPage() {
     groq: "",
     openrouter: "",
   });
+
+  // UI state
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<"idle" | "success" | "error">(
+    "idle"
+  );
+  const [loadingPreferences, setLoadingPreferences] = useState(true);
+
+  // Files state
+  const [userFiles, setUserFiles] = useState<UserFile[]>([]);
+  const [loadingFiles, setLoadingFiles] = useState(true);
+  const [filesStats, setFilesStats] = useState({
+    total_files: 0,
+    total_images: 0,
+    total_documents: 0,
+    total_size_bytes: 0,
+  });
+
+  // Load user preferences on mount
+  useEffect(() => {
+    if (user && !authLoading) {
+      loadUserPreferences();
+      loadUserFiles();
+    }
+  }, [user, authLoading]);
+
+  const loadUserPreferences = async () => {
+    try {
+      setLoadingPreferences(true);
+      const response = await fetch("/api/user/preferences");
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data.preferences) {
+          setUserName(data.preferences.display_name || "");
+          setUserOccupation(data.preferences.occupation || "");
+          setTraits(data.preferences.traits || []);
+          setAdditionalInfo(data.preferences.additional_info || "");
+        }
+      }
+    } catch (error) {
+      console.error("Error loading preferences:", error);
+    } finally {
+      setLoadingPreferences(false);
+    }
+  };
+
+  const loadUserFiles = async () => {
+    try {
+      setLoadingFiles(true);
+      const response = await fetch("/api/user/files");
+
+      if (response.ok) {
+        const data = await response.json();
+        const allFiles = [...data.files.images, ...data.files.documents];
+        setUserFiles(allFiles);
+        setFilesStats(data.stats);
+      }
+    } catch (error) {
+      console.error("Error loading files:", error);
+    } finally {
+      setLoadingFiles(false);
+    }
+  };
+
+  const saveUserPreferences = async () => {
+    if (!user) return;
+
+    try {
+      setSaving(true);
+      setSaveStatus("idle");
+
+      const preferences: UserPreferences = {
+        display_name: userName.trim() || undefined,
+        occupation: userOccupation.trim() || undefined,
+        traits: traits.length > 0 ? traits : undefined,
+        additional_info: additionalInfo.trim() || undefined,
+      };
+
+      const response = await fetch("/api/user/preferences", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(preferences),
+      });
+
+      if (response.ok) {
+        setSaveStatus("success");
+        setTimeout(() => setSaveStatus("idle"), 3000);
+      } else {
+        setSaveStatus("error");
+        setTimeout(() => setSaveStatus("idle"), 3000);
+      }
+    } catch (error) {
+      console.error("Error saving preferences:", error);
+      setSaveStatus("error");
+      setTimeout(() => setSaveStatus("idle"), 3000);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDeleteAccount = async () => {
+    if (!user) return;
+
+    const confirmed = window.confirm(
+      "Are you sure you want to delete your account? This action cannot be undone and will permanently delete all your data including conversations, preferences, and uploaded files."
+    );
+
+    if (!confirmed) return;
+
+    try {
+      setLoading(true);
+
+      // Sign out first to clear the session
+      await supabase.auth.signOut();
+
+      const response = await fetch("/api/user/account", {
+        method: "DELETE",
+      });
+
+      if (response.ok) {
+        // Redirect to login after successful deletion
+        router.push("/login");
+      } else {
+        alert("Failed to delete account. Please try again or contact support.");
+      }
+    } catch (error) {
+      console.error("Error deleting account:", error);
+      alert("Failed to delete account. Please try again or contact support.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleExportHistory = async () => {
+    if (!user) return;
+
+    try {
+      setLoading(true);
+      const response = await fetch("/api/user/history");
+
+      if (response.ok) {
+        const blob = await response.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `chat-history-${
+          new Date().toISOString().split("T")[0]
+        }.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      } else {
+        alert("Failed to export history. Please try again.");
+      }
+    } catch (error) {
+      console.error("Error exporting history:", error);
+      alert("Failed to export history. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDeleteHistory = async () => {
+    if (!user) return;
+
+    const confirmed = window.confirm(
+      "Are you sure you want to delete all your message history? This action cannot be undone."
+    );
+
+    if (!confirmed) return;
+
+    try {
+      setLoading(true);
+      const response = await fetch("/api/user/history", {
+        method: "DELETE",
+      });
+
+      if (response.ok) {
+        alert("Message history deleted successfully.");
+      } else {
+        alert("Failed to delete history. Please try again.");
+      }
+    } catch (error) {
+      console.error("Error deleting history:", error);
+      alert("Failed to delete history. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const formatFileSize = (bytes: number): string => {
+    if (bytes === 0) return "0 Bytes";
+    const k = 1024;
+    const sizes = ["Bytes", "KB", "MB", "GB"];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
+  };
+
+  // Redirect to login if not authenticated
+  if (!authLoading && !user) {
+    router.push("/login");
+    return null;
+  }
+
+  // Show loading spinner while checking auth
+  if (authLoading) {
+    return (
+      <div className="w-full min-h-screen bg-gradient-to-b from-[#fdfbfb] to-[#ebedee] dark:from-[#1B1B1B] dark:to-[#003153] flex items-center justify-center">
+        <Loader2 className="w-8 h-8 animate-spin text-gray-600 dark:text-gray-400" />
+      </div>
+    );
+  }
 
   const apiProviders = [
     {
@@ -199,13 +441,21 @@ export default function SettingsPage() {
             <div className="lg:sticky lg:top-8">
               <div className="text-center p-4 lg:p-0">
                 <div className="w-16 h-16 mx-auto rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center mb-4">
-                  <User className="w-8 h-8 text-white" />
+                  {user?.user_metadata?.avatar_url ? (
+                    <img
+                      src={user.user_metadata.avatar_url}
+                      alt={user.user_metadata?.full_name || 'User'}
+                      className="w-full h-full rounded-full object-cover"
+                    />
+                  ) : (
+                    <User className="w-8 h-8 text-white" />
+                  )}
                 </div>
                 <h3 className="font-medium text-gray-900 dark:text-white">
-                  User Name
+                  {userName || user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'User'}
                 </h3>
                 <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                  abs@email.com
+                  {user?.email}
                 </p>
                 <div className="inline-flex items-center px-3 py-1 rounded-full bg-gray-100 dark:bg-gray-800 text-xs font-medium text-gray-600 dark:text-gray-400 mt-3">
                   Free Plan
@@ -340,240 +590,281 @@ export default function SettingsPage() {
                     Permanently delete your account and all data. This action
                     cannot be undone.
                   </p>
-                  <button className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">
+                  <button
+                    onClick={handleDeleteAccount}
+                    disabled={loading}
+                    className="bg-red-600 hover:bg-red-700 disabled:bg-red-400 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
+                  >
+                    {loading && <Loader2 className="w-4 h-4 animate-spin" />}
                     Delete Account
                   </button>
                 </div>
               </TabsContent>
 
               <TabsContent value="customization" className="mt-6 sm:mt-8">
-                <div className="space-y-6 sm:space-y-8">
-                  {/* Visual Options Section */}
-                  <div>
-                    <div className="flex items-center gap-2 mb-4 sm:mb-6">
-                      <Eye className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
-                      <h2 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-white">
-                        Visual Options
-                      </h2>
-                    </div>
-
-                    <div className="space-y-4 sm:space-y-6">
-                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-                        <div className="flex-1">
-                          <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                            Change Theme
-                          </h3>
-                          <p className="text-xs text-gray-500 dark:text-gray-400">
-                            Switch between light, dark, system, or dynamic
-                            themes to customize your visual experience.
-                          </p>
-                        </div>
-                        <div className="sm:ml-6">
-                          <ThemeSwitch />
-                        </div>
-                      </div>
-
-                      <div className="border-b border-gray-200 dark:border-gray-600"></div>
-
-                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-                        <div className="flex-1">
-                          <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                            Change Layout
-                          </h3>
-                          <p className="text-xs text-gray-500 dark:text-gray-400">
-                            Choose between default and rework layouts to
-                            optimize your interface and workflow.
-                          </p>
-                        </div>
-                        <div className="sm:ml-6">
-                          <LayoutSwitch />
-                        </div>
-                      </div>
-                    </div>
+                {loadingPreferences ? (
+                  <div className="flex items-center justify-center py-12">
+                    <Loader2 className="w-8 h-8 animate-spin text-gray-600 dark:text-gray-400" />
                   </div>
+                ) : (
+                  <div className="space-y-6 sm:space-y-8">
+                    {/* Visual Options Section */}
+                    <div>
+                      <div className="flex items-center gap-2 mb-4 sm:mb-6">
+                        <Eye className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
+                        <h2 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-white">
+                          Visual Options
+                        </h2>
+                      </div>
 
-                  {/* User Info Section */}
-                  <div className="border-t border-gray-200 dark:border-gray-700 pt-6 sm:pt-8">
-                    <div className="flex items-center gap-2 mb-4 sm:mb-6">
-                      <User className="w-5 h-5 text-blue-600 dark:text-blue-400" />
-                      <h2 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-white">
-                        User Info
-                      </h2>
+                      <div className="space-y-4 sm:space-y-6">
+                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                          <div className="flex-1">
+                            <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                              Change Theme
+                            </h3>
+                            <p className="text-xs text-gray-500 dark:text-gray-400">
+                              Switch between light, dark, system, or dynamic
+                              themes to customize your visual experience.
+                            </p>
+                          </div>
+                          <div className="sm:ml-6">
+                            <ThemeSwitch />
+                          </div>
+                        </div>
+
+                        <div className="border-b border-gray-200 dark:border-gray-600"></div>
+
+                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                          <div className="flex-1">
+                            <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                              Change Layout
+                            </h3>
+                            <p className="text-xs text-gray-500 dark:text-gray-400">
+                              Choose between default and rework layouts to
+                              optimize your interface and workflow.
+                            </p>
+                          </div>
+                          <div className="sm:ml-6">
+                            <LayoutSwitch />
+                          </div>
+                        </div>
+                      </div>
                     </div>
 
-                    <div className="space-y-4 sm:space-y-6">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
-                          What should the AI call you?
-                        </label>
-                        <div className="relative">
-                          <input
-                            type="text"
-                            value={userName}
-                            onChange={(e) =>
-                              setUserName(e.target.value.slice(0, 50))
-                            }
-                            placeholder="Your preferred name"
-                            className="w-full p-3 sm:p-4 bg-transparent text-gray-900 dark:text-white focus:outline-none transition-colors"
-                            maxLength={50}
-                          />
-                          <div className="absolute right-0 top-3 sm:top-4 text-xs text-gray-400">
-                            {userName.length}/50
+                    {/* User Info Section */}
+                    <div className="border-t border-gray-200 dark:border-gray-700 pt-6 sm:pt-8">
+                      <div className="flex items-center gap-2 mb-4 sm:mb-6">
+                        <User className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+                        <h2 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-white">
+                          User Info
+                        </h2>
+                      </div>
+
+                      <div className="space-y-4 sm:space-y-6">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
+                            What should the AI call you?
+                          </label>
+                          <div className="relative">
+                            <input
+                              type="text"
+                              value={userName}
+                              onChange={(e) =>
+                                setUserName(e.target.value.slice(0, 50))
+                              }
+                              placeholder="Your preferred name"
+                              className="w-full p-3 sm:p-4 bg-transparent text-gray-900 dark:text-white focus:outline-none transition-colors"
+                              maxLength={50}
+                            />
+                            <div className="absolute right-0 top-3 sm:top-4 text-xs text-gray-400">
+                              {userName.length}/50
+                            </div>
+                            <div className="border-b border-gray-300 dark:border-gray-600"></div>
                           </div>
-                          <div className="border-b border-gray-300 dark:border-gray-600"></div>
                         </div>
+
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
+                            What do you do?
+                          </label>
+                          <div className="relative">
+                            <input
+                              type="text"
+                              value={userOccupation}
+                              onChange={(e) =>
+                                setUserOccupation(e.target.value.slice(0, 100))
+                              }
+                              placeholder="Engineer, student, designer, etc."
+                              className="w-full p-3 sm:p-4 bg-transparent text-gray-900 dark:text-white focus:outline-none transition-colors"
+                              maxLength={100}
+                            />
+                            <div className="absolute right-0 top-3 sm:top-4 text-xs text-gray-400">
+                              {userOccupation.length}/100
+                            </div>
+                            <div className="border-b border-gray-300 dark:border-gray-600"></div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Chatbot Customization Section */}
+                    <div className="border-t border-gray-200 dark:border-gray-700 pt-6 sm:pt-8">
+                      <div className="flex items-center gap-2 mb-4 sm:mb-6">
+                        <Settings className="w-5 h-5 text-purple-600 dark:text-purple-400" />
+                        <h2 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-white">
+                          Chatbot Customization
+                        </h2>
                       </div>
 
                       <div>
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
-                          What do you do?
+                          What traits should the AI have?
                         </label>
-                        <div className="relative">
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">
+                          Type a trait and press Enter to add it. Maximum 50
+                          traits.
+                        </p>
+
+                        {/* Trait Input */}
+                        <div className="relative mb-4 sm:mb-6">
                           <input
                             type="text"
-                            value={userOccupation}
+                            value={traitInput}
                             onChange={(e) =>
-                              setUserOccupation(e.target.value.slice(0, 100))
+                              setTraitInput(e.target.value.slice(0, 100))
                             }
-                            placeholder="Engineer, student, designer, etc."
+                            onKeyDown={handleTraitInputKeyDown}
+                            placeholder="Type a trait and press Enter..."
                             className="w-full p-3 sm:p-4 bg-transparent text-gray-900 dark:text-white focus:outline-none transition-colors"
                             maxLength={100}
+                            disabled={traits.length >= 50}
                           />
                           <div className="absolute right-0 top-3 sm:top-4 text-xs text-gray-400">
-                            {userOccupation.length}/100
+                            {traits.length}/50
+                          </div>
+                          <div className="border-b border-gray-300 dark:border-gray-600"></div>
+                        </div>
+
+                        {/* Suggested Traits */}
+                        <div className="mb-4 sm:mb-6">
+                          <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
+                            Suggested traits:
+                          </p>
+                          <div className="flex flex-wrap gap-2">
+                            {suggestedTraits
+                              .filter((trait) => !traits.includes(trait))
+                              .map((trait, index) => (
+                                <button
+                                  key={index}
+                                  onClick={() => handleTraitAdd(trait)}
+                                  disabled={traits.length >= 50}
+                                  className="px-3 py-2 text-xs border border-gray-300 dark:border-gray-600 rounded-full hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400 transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                                >
+                                  <Plus className="w-3 h-3 inline mr-1" />
+                                  {trait}
+                                </button>
+                              ))}
+                          </div>
+                        </div>
+
+                        {/* Current Traits */}
+                        {traits.length > 0 && (
+                          <div className="flex flex-wrap gap-2">
+                            {traits.map((trait, index) => (
+                              <div
+                                key={index}
+                                className="inline-flex items-center gap-1 px-3 py-2 bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-300 rounded-full text-sm"
+                              >
+                                <span>{trait}</span>
+                                <button
+                                  onClick={() => removeTrait(index)}
+                                  className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-200 transition-colors cursor-pointer ml-1 p-1"
+                                >
+                                  <X className="w-3 h-3" />
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Additional Preferences */}
+                    <div className="border-t border-gray-200 dark:border-gray-700 pt-6 sm:pt-8">
+                      <div className="flex items-center gap-2 mb-4 sm:mb-6">
+                        <Monitor className="w-5 h-5 text-green-600 dark:text-green-400" />
+                        <h2 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-white">
+                          Additional Preferences
+                        </h2>
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
+                          Anything else the AI should know about you?
+                        </label>
+                        <div className="relative">
+                          <textarea
+                            value={additionalInfo}
+                            onChange={(e) =>
+                              setAdditionalInfo(e.target.value.slice(0, 3000))
+                            }
+                            placeholder="Interests, values, communication style preferences, or anything else that would help the AI assist you better..."
+                            className="w-full p-3 sm:p-4 bg-transparent text-gray-900 dark:text-white focus:outline-none transition-colors resize-none"
+                            rows={6}
+                            maxLength={3000}
+                          />
+                          <div className="absolute right-0 bottom-3 sm:bottom-4 text-xs text-gray-400">
+                            {additionalInfo.length}/3000
                           </div>
                           <div className="border-b border-gray-300 dark:border-gray-600"></div>
                         </div>
                       </div>
                     </div>
-                  </div>
 
-                  {/* Chatbot Customization Section */}
-                  <div className="border-t border-gray-200 dark:border-gray-700 pt-6 sm:pt-8">
-                    <div className="flex items-center gap-2 mb-4 sm:mb-6">
-                      <Settings className="w-5 h-5 text-purple-600 dark:text-purple-400" />
-                      <h2 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-white">
-                        Chatbot Customization
-                      </h2>
-                    </div>
+                    {/* Action Buttons */}
+                    <div className="border-t border-gray-200 dark:border-gray-700 pt-6 sm:pt-8">
+                      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
+                        <button
+                          onClick={loadUserPreferences}
+                          disabled={loading}
+                          className="px-4 py-2 cursor-pointer text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white transition-colors font-medium order-2 sm:order-1 flex items-center gap-2"
+                        >
+                          {loading && (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          )}
+                          Reload Preferences
+                        </button>
 
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
-                        What traits should the AI have?
-                      </label>
-                      <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">
-                        Type a trait and press Enter to add it. Maximum 50
-                        traits.
-                      </p>
-
-                      {/* Trait Input */}
-                      <div className="relative mb-4 sm:mb-6">
-                        <input
-                          type="text"
-                          value={traitInput}
-                          onChange={(e) =>
-                            setTraitInput(e.target.value.slice(0, 100))
-                          }
-                          onKeyDown={handleTraitInputKeyDown}
-                          placeholder="Type a trait and press Enter..."
-                          className="w-full p-3 sm:p-4 bg-transparent text-gray-900 dark:text-white focus:outline-none transition-colors"
-                          maxLength={100}
-                          disabled={traits.length >= 50}
-                        />
-                        <div className="absolute right-0 top-3 sm:top-4 text-xs text-gray-400">
-                          {traits.length}/50
-                        </div>
-                        <div className="border-b border-gray-300 dark:border-gray-600"></div>
-                      </div>
-
-                      {/* Suggested Traits */}
-                      <div className="mb-4 sm:mb-6">
-                        <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
-                          Suggested traits:
-                        </p>
-                        <div className="flex flex-wrap gap-2">
-                          {suggestedTraits
-                            .filter((trait) => !traits.includes(trait))
-                            .map((trait, index) => (
-                              <button
-                                key={index}
-                                onClick={() => handleTraitAdd(trait)}
-                                disabled={traits.length >= 50}
-                                className="px-3 py-2 text-xs border border-gray-300 dark:border-gray-600 rounded-full hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400 transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-                              >
-                                <Plus className="w-3 h-3 inline mr-1" />
-                                {trait}
-                              </button>
-                            ))}
-                        </div>
-                      </div>
-
-                      {/* Current Traits */}
-                      {traits.length > 0 && (
-                        <div className="flex flex-wrap gap-2">
-                          {traits.map((trait, index) => (
-                            <div
-                              key={index}
-                              className="inline-flex items-center gap-1 px-3 py-2 bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-300 rounded-full text-sm"
-                            >
-                              <span>{trait}</span>
-                              <button
-                                onClick={() => removeTrait(index)}
-                                className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-200 transition-colors cursor-pointer ml-1 p-1"
-                              >
-                                <X className="w-3 h-3" />
-                              </button>
+                        <div className="flex items-center gap-3 order-1 sm:order-2">
+                          {saveStatus === "success" && (
+                            <div className="flex items-center gap-1 text-green-600 dark:text-green-400 text-sm">
+                              <CheckCircle className="w-4 h-4" />
+                              Saved!
                             </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  </div>
+                          )}
+                          {saveStatus === "error" && (
+                            <div className="flex items-center gap-1 text-red-600 dark:text-red-400 text-sm">
+                              <XCircle className="w-4 h-4" />
+                              Error saving
+                            </div>
+                          )}
 
-                  {/* Additional Preferences */}
-                  <div className="border-t border-gray-200 dark:border-gray-700 pt-6 sm:pt-8">
-                    <div className="flex items-center gap-2 mb-4 sm:mb-6">
-                      <Monitor className="w-5 h-5 text-green-600 dark:text-green-400" />
-                      <h2 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-white">
-                        Additional Preferences
-                      </h2>
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
-                        Anything else the AI should know about you?
-                      </label>
-                      <div className="relative">
-                        <textarea
-                          value={additionalInfo}
-                          onChange={(e) =>
-                            setAdditionalInfo(e.target.value.slice(0, 3000))
-                          }
-                          placeholder="Interests, values, communication style preferences, or anything else that would help the AI assist you better..."
-                          className="w-full p-3 sm:p-4 bg-transparent text-gray-900 dark:text-white focus:outline-none transition-colors resize-none"
-                          rows={6}
-                          maxLength={3000}
-                        />
-                        <div className="absolute right-0 bottom-3 sm:bottom-4 text-xs text-gray-400">
-                          {additionalInfo.length}/3000
+                          <button
+                            onClick={saveUserPreferences}
+                            disabled={saving}
+                            className="px-6 py-3 cursor-pointer bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 disabled:cursor-not-allowed text-white rounded-lg font-medium transition-colors flex items-center gap-2"
+                          >
+                            {saving && (
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                            )}
+                            Save Preferences
+                          </button>
                         </div>
-                        <div className="border-b border-gray-300 dark:border-gray-600"></div>
                       </div>
                     </div>
                   </div>
-
-                  {/* Action Buttons */}
-                  <div className="border-t border-gray-200 dark:border-gray-700 pt-6 sm:pt-8">
-                    <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
-                      <button className="px-4 py-2 cursor-pointer text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white transition-colors font-medium order-2 sm:order-1">
-                        Load Legacy Data
-                      </button>
-                      <button className="px-6 py-3 cursor-pointer bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors order-1 sm:order-2">
-                        Save Preferences
-                      </button>
-                    </div>
-                  </div>
-                </div>
+                )}
               </TabsContent>
 
               <TabsContent value="history" className="mt-6 sm:mt-8">
@@ -590,10 +881,20 @@ export default function SettingsPage() {
                   </div>
 
                   <div className="flex flex-col gap-3">
-                    <button className="bg-blue-600 hover:bg-blue-700 text-white py-3 px-4 rounded-lg font-medium transition-colors">
+                    <button
+                      onClick={handleExportHistory}
+                      disabled={loading}
+                      className="bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 disabled:cursor-not-allowed text-white py-3 px-4 rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
+                    >
+                      {loading && <Loader2 className="w-4 h-4 animate-spin" />}
                       Export Message History
                     </button>
-                    <button className="bg-red-600 hover:bg-red-700 text-white py-3 px-4 rounded-lg font-medium transition-colors">
+                    <button
+                      onClick={handleDeleteHistory}
+                      disabled={loading}
+                      className="bg-red-600 hover:bg-red-700 disabled:bg-red-400 disabled:cursor-not-allowed text-white py-3 px-4 rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
+                    >
+                      {loading && <Loader2 className="w-4 h-4 animate-spin" />}
                       Delete All Messages
                     </button>
                   </div>
@@ -708,30 +1009,128 @@ export default function SettingsPage() {
                     </p>
                   </div>
 
-                  <div className="text-center py-8 sm:py-12">
-                    <div className="text-gray-400 dark:text-gray-500 mb-4">
-                      <svg
-                        className="w-12 h-12 sm:w-16 sm:h-16 mx-auto"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={1.5}
-                          d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-                        />
-                      </svg>
+                  {loadingFiles ? (
+                    <div className="flex items-center justify-center py-12">
+                      <Loader2 className="w-8 h-8 animate-spin text-gray-600 dark:text-gray-400" />
                     </div>
-                    <h3 className="text-base sm:text-lg font-medium text-gray-900 dark:text-white mb-2">
-                      No uploaded files yet
-                    </h3>
-                    <p className="text-sm text-gray-600 dark:text-gray-400 max-w-md mx-auto">
-                      When you upload images, documents, or other files in your
-                      conversations, they'll appear here for easy management.
-                    </p>
-                  </div>
+                  ) : userFiles.length > 0 ? (
+                    <>
+                      {/* Files Statistics */}
+                      <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 mb-6">
+                        <div className="bg-white dark:bg-gray-800 p-4 rounded-lg border border-gray-200 dark:border-gray-700">
+                          <div className="text-2xl font-bold text-blue-600 dark:text-blue-400">
+                            {filesStats.total_files}
+                          </div>
+                          <div className="text-sm text-gray-600 dark:text-gray-400">
+                            Total Files
+                          </div>
+                        </div>
+                        <div className="bg-white dark:bg-gray-800 p-4 rounded-lg border border-gray-200 dark:border-gray-700">
+                          <div className="text-2xl font-bold text-green-600 dark:text-green-400">
+                            {filesStats.total_images}
+                          </div>
+                          <div className="text-sm text-gray-600 dark:text-gray-400">
+                            Images
+                          </div>
+                        </div>
+                        <div className="bg-white dark:bg-gray-800 p-4 rounded-lg border border-gray-200 dark:border-gray-700">
+                          <div className="text-2xl font-bold text-purple-600 dark:text-purple-400">
+                            {filesStats.total_documents}
+                          </div>
+                          <div className="text-sm text-gray-600 dark:text-gray-400">
+                            Documents
+                          </div>
+                        </div>
+                        <div className="bg-white dark:bg-gray-800 p-4 rounded-lg border border-gray-200 dark:border-gray-700">
+                          <div className="text-2xl font-bold text-orange-600 dark:text-orange-400">
+                            {formatFileSize(filesStats.total_size_bytes)}
+                          </div>
+                          <div className="text-sm text-gray-600 dark:text-gray-400">
+                            Total Size
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Files List */}
+                      <div className="space-y-3">
+                        {userFiles.map((file) => (
+                          <div
+                            key={file.id}
+                            className="flex items-center justify-between p-4 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700"
+                          >
+                            <div className="flex items-center gap-3">
+                              <div
+                                className={`w-8 h-8 rounded-lg flex items-center justify-center ${
+                                  file.type === "image"
+                                    ? "bg-green-100 dark:bg-green-900/20"
+                                    : "bg-purple-100 dark:bg-purple-900/20"
+                                }`}
+                              >
+                                {file.type === "image" ? (
+                                  <svg
+                                    className="w-4 h-4 text-green-600 dark:text-green-400"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    viewBox="0 0 24 24"
+                                  >
+                                    <path
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                      strokeWidth={2}
+                                      d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V5a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
+                                    />
+                                  </svg>
+                                ) : (
+                                  <FileText className="w-4 h-4 text-purple-600 dark:text-purple-400" />
+                                )}
+                              </div>
+                              <div>
+                                <div className="font-medium text-gray-900 dark:text-white">
+                                  {file.file_name}
+                                </div>
+                                <div className="text-sm text-gray-500 dark:text-gray-400">
+                                  {formatFileSize(file.file_size)} •{" "}
+                                  {file.conversation_title} •{" "}
+                                  {new Date(
+                                    file.created_at
+                                  ).toLocaleDateString()}
+                                </div>
+                              </div>
+                            </div>
+                            <div className="text-xs text-gray-400 uppercase">
+                              {file.type}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  ) : (
+                    <div className="text-center py-8 sm:py-12">
+                      <div className="text-gray-400 dark:text-gray-500 mb-4">
+                        <svg
+                          className="w-12 h-12 sm:w-16 sm:h-16 mx-auto"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={1.5}
+                            d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                          />
+                        </svg>
+                      </div>
+                      <h3 className="text-base sm:text-lg font-medium text-gray-900 dark:text-white mb-2">
+                        No uploaded files yet
+                      </h3>
+                      <p className="text-sm text-gray-600 dark:text-gray-400 max-w-md mx-auto">
+                        When you upload images, documents, or other files in
+                        your conversations, they'll appear here for easy
+                        management.
+                      </p>
+                    </div>
+                  )}
                 </div>
               </TabsContent>
 
