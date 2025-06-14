@@ -50,6 +50,10 @@ export default function ChatPage() {
   const [isTransitioningBack, setIsTransitioningBack] = useState(false);
   const [isFromTransition, setIsFromTransition] = useState(false);
   const [selectedPersona, setSelectedPersona] = useState<string | null>(null);
+  const [conversationTitle, setConversationTitle] = useState<string>("New Chat");
+  const [isLoadingConversation, setIsLoadingConversation] = useState(true);
+  const [conversationExists, setConversationExists] = useState(false);
+  const [currentConversationId, setCurrentConversationId] = useState<string>(chatId); // Track the actual conversation ID
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const headerRef = useRef<HTMLDivElement>(null);
   const inputContainerRef = useRef<HTMLDivElement>(null);
@@ -62,7 +66,7 @@ export default function ChatPage() {
     messages,
     input,
     handleInputChange,
-    handleSubmit,
+    handleSubmit: originalHandleSubmit,
     isLoading,
     setMessages,
     append,
@@ -70,10 +74,14 @@ export default function ChatPage() {
     api: "/api/chat",
     body: {
       persona: selectedPersona,
+      conversationId: currentConversationId, // Use the current conversation ID state
     },
     onError: (error) => {
       console.error("Chat processing error:", error);
-      // You could set a state here to display an error message to the user
+    },
+    onFinish: async (message) => {
+      // The API now handles saving messages, so we don't need to duplicate it here
+      console.log("Message finished:", message.id);
     },
   });
 
@@ -157,23 +165,37 @@ export default function ChatPage() {
     ) {
       initialMessageProcessedRef.current = true; // Set ref to true once processed
 
-      // Increment API usage here since we're making the actual API call
-      if ((window as any).incrementApiUsage) {
-        (window as any).incrementApiUsage();
-      }
+      // Create conversation first if it doesn't exist
+      const handleInitialMessage = async () => {
+        if (!conversationExists) {
+          console.log('Creating conversation for initial message');
+          const newConversation = await createConversationInSupabase(initialMessage);
+          if (!newConversation) {
+            console.error('Failed to create conversation for initial message');
+            return;
+          }
+        }
 
-      // Use the append function to properly handle the conversation
-      append({
-        role: "user",
-        content: initialMessage,
-      });
+        // Increment API usage here since we're making the actual API call
+        if ((window as any).incrementApiUsage) {
+          (window as any).incrementApiUsage();
+        }
+
+        // Use the append function to properly handle the conversation
+        append({
+          role: "user",
+          content: initialMessage,
+        });
+      };
+
+      handleInitialMessage();
 
       // Clean up URL after processing initial message
       const url = new URL(window.location.href);
       url.searchParams.delete("message");
       window.history.replaceState({}, "", url.toString());
     }
-  }, [searchParams, messages, append]); // Updated dependencies
+  }, [searchParams, messages, append, conversationExists]); // Added conversationExists dependency
 
   // Auto-scroll to bottom
   useEffect(() => {
@@ -204,6 +226,161 @@ export default function ChatPage() {
     }
   }, [messages.length, isFromTransition]);
 
+  // Load existing conversation on mount
+  useEffect(() => {
+    const loadConversation = async () => {
+      try {
+        setIsLoadingConversation(true);
+        const response = await fetch(`/api/conversations/${chatId}`);
+        
+        if (response.ok) {
+          const data = await response.json();
+          setConversationTitle(data.conversation.title);
+          setConversationExists(true);
+          
+          // CRITICAL: Set the current conversation ID to ensure useChat uses the correct ID
+          setCurrentConversationId(data.conversation.id);
+          
+          // Convert database messages to chat format
+          const chatMessages = data.messages.map((msg: any) => {
+            // For assistant messages with tool results, convert properly
+            if (msg.role === 'assistant' && msg.metadata && msg.metadata.toolResults) {
+              return {
+                id: msg.id,
+                role: msg.role,
+                content: msg.content,
+                toolInvocations: msg.metadata.toolResults.map((tool: any) => ({
+                  toolCallId: tool.toolCallId || `tool-${Date.now()}-${Math.random()}`,
+                  toolName: tool.toolName,
+                  args: tool.args,
+                  result: tool.result,
+                  state: 'result' // Mark as completed
+                })),
+                createdAt: new Date(msg.created_at),
+              };
+            }
+            
+            // For regular messages (user, assistant without tools, system)
+            return {
+              id: msg.id,
+              role: msg.role,
+              content: msg.content,
+              createdAt: new Date(msg.created_at),
+            };
+          });
+          
+          setMessages(chatMessages);
+        } else if (response.status === 404) {
+          setConversationExists(false);
+        }
+      } catch (error) {
+        console.error("Error loading conversation:", error);
+      } finally {
+        setIsLoadingConversation(false);
+      }
+    };
+
+    loadConversation();
+  }, [chatId, setMessages]);
+
+  // Function to create conversation in Supabase
+  const createConversationInSupabase = async (userMessage?: string) => {
+    try {
+      // Create conversation with temporary title first
+      const tempTitle = "New Chat";
+      
+      const response = await fetch("/api/conversations", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ title: tempTitle }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setConversationExists(true);
+        
+        // Update the chat ID to match the created conversation
+        const newChatId = data.conversation.id;
+        
+        // CRITICAL: Update the current conversation ID state for useChat
+        setCurrentConversationId(newChatId);
+        
+        // Update the URL to match the created conversation ID
+        if (newChatId !== chatId) {
+          window.history.replaceState({}, "", `/c/${newChatId}`);
+        }
+        
+        // If we have a user message, generate AI title
+        if (userMessage && userMessage.trim()) {
+          generateAndUpdateTitle(newChatId, userMessage);
+        }
+        
+        return data.conversation;
+      }
+    } catch (error) {
+      console.error("Error creating conversation:", error);
+    }
+  };
+
+  // Function to generate and update conversation title using AI
+  const generateAndUpdateTitle = async (conversationId: string, userPrompt: string) => {
+    try {
+      console.log('Generating AI title for conversation:', conversationId);
+      
+      const response = await fetch("/api/conversations", {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ 
+          conversationId: conversationId,
+          prompt: userPrompt 
+        }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        console.log('AI-generated title:', data.title);
+        setConversationTitle(data.title);
+      } else {
+        console.error('Failed to generate title:', await response.text());
+      }
+    } catch (error) {
+      console.error("Error generating conversation title:", error);
+    }
+  };
+
+  // Generate title from message (fallback method)
+  const generateTitleFromMessage = (content: string) => {
+    const words = content.split(" ").slice(0, 6).join(" ");
+    return words.length > 40 ? words.substring(0, 37) + "..." : words;
+  };
+
+  // Custom submit handler
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    
+    if (!input.trim() || isLoading) return;
+    
+    const userMessage = input.trim();
+    
+    // Create conversation if it doesn't exist before sending message
+    if (!conversationExists) {
+      console.log('Creating new conversation before sending message');
+      const newConversation = await createConversationInSupabase(userMessage);
+      if (!newConversation) {
+        console.error('Failed to create conversation');
+        return; // Don't proceed if conversation creation failed
+      }
+    }
+    
+    // Call original submit handler
+    originalHandleSubmit(e);
+  };
+
+  // Back to home with animation
   const handleBackToHome = () => {
     if (!isTransitioningBack) {
       setIsTransitioningBack(true);
@@ -470,13 +647,34 @@ export default function ChatPage() {
             >
               <ArrowLeft className="w-5 h-5" />
             </button>
-            <h1
-              className={`text-lg font-semibold ${
-                isDarkMode ? "text-white" : "text-gray-900"
-              }`}
-            >
-              T3 Chat
-            </h1>
+            <div className="flex-1 text-center">
+              {isLoadingConversation ? (
+                <div className="flex items-center justify-center gap-2">
+                  <div
+                    className={`w-3 h-3 rounded-full animate-pulse ${
+                      isDarkMode ? "bg-gray-500" : "bg-gray-400"
+                    }`}
+                  ></div>
+                  <span
+                    className={`text-sm ${
+                      isDarkMode ? "text-gray-400" : "text-gray-500"
+                    }`}
+                  >
+                    Loading...
+                  </span>
+                </div>
+              ) : (
+                <h1
+                  className={`text-lg font-semibold truncate ${
+                    isDarkMode ? "text-white" : "text-gray-900"
+                  }`}
+                  title={conversationTitle}
+                >
+                  {conversationTitle}
+                </h1>
+              )}
+            </div>
+            <div className="w-9" /> {/* Spacer to balance the back button */}
           </div>
         </div>
         {/* Messages */}
