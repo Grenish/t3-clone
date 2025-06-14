@@ -4,6 +4,7 @@ import { Limiter } from "@/components/limiter";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import ThemeSwitch from "@/components/theme-switch";
 import LayoutSwitch from "@/components/layout-switch";
+import ImageGallery from "@/components/image-gallery";
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/lib/supabase";
 import {
@@ -73,22 +74,12 @@ export default function SettingsPage() {
   const [loadingPreferences, setLoadingPreferences] = useState(true);
 
   // Files state
-  const [userFiles, setUserFiles] = useState<UserFile[]>([]);
-  const [loadingFiles, setLoadingFiles] = useState(true);
-  const [filesStats, setFilesStats] = useState({
-    total_files: 0,
+  const [userImages, setUserImages] = useState<any[]>([]);
+  const [loadingImages, setLoadingImages] = useState(true);
+  const [imagesStats, setImagesStats] = useState({
     total_images: 0,
-    total_documents: 0,
-    total_size_bytes: 0,
+    total_size_mb: 0,
   });
-
-  // Load user preferences on mount
-  useEffect(() => {
-    if (user && !authLoading) {
-      loadUserPreferences();
-      loadUserFiles();
-    }
-  }, [user, authLoading]);
 
   const loadUserPreferences = async () => {
     try {
@@ -111,23 +102,34 @@ export default function SettingsPage() {
     }
   };
 
-  const loadUserFiles = async () => {
+  const loadUserImages = async () => {
     try {
-      setLoadingFiles(true);
+      setLoadingImages(true);
       const response = await fetch("/api/user/files");
 
       if (response.ok) {
         const data = await response.json();
-        const allFiles = [...data.files.images, ...data.files.documents];
-        setUserFiles(allFiles);
-        setFilesStats(data.stats);
+        // Only get images, not documents
+        setUserImages(data.files.images || []);
+        setImagesStats({
+          total_images: data.stats.total_images || 0,
+          total_size_mb: Math.round((data.stats.total_size_bytes || 0) / (1024 * 1024) * 100) / 100,
+        });
       }
     } catch (error) {
-      console.error("Error loading files:", error);
+      console.error("Error loading images:", error);
     } finally {
-      setLoadingFiles(false);
+      setLoadingImages(false);
     }
   };
+
+  // Load user preferences on mount
+  useEffect(() => {
+    if (user && !authLoading) {
+      loadUserPreferences();
+      loadUserImages();
+    }
+  }, [user, authLoading]);
 
   const saveUserPreferences = async () => {
     if (!user) return;
@@ -1001,135 +1003,44 @@ export default function SettingsPage() {
                 <div className="space-y-6">
                   <div className="pb-4 border-b border-gray-200 dark:border-gray-700">
                     <h2 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-white mb-2">
-                      Uploaded Media
+                      Generated Images
                     </h2>
                     <p className="text-sm text-gray-600 dark:text-gray-400">
-                      View and manage all the images, documents, and files
-                      you've uploaded to conversations.
+                      View and download all the images you've generated in your conversations.
                     </p>
                   </div>
 
-                  {loadingFiles ? (
+                  {loadingImages ? (
                     <div className="flex items-center justify-center py-12">
                       <Loader2 className="w-8 h-8 animate-spin text-gray-600 dark:text-gray-400" />
                     </div>
-                  ) : userFiles.length > 0 ? (
-                    <>
-                      {/* Files Statistics */}
-                      <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 mb-6">
-                        <div className="bg-white dark:bg-gray-800 p-4 rounded-lg border border-gray-200 dark:border-gray-700">
-                          <div className="text-2xl font-bold text-blue-600 dark:text-blue-400">
-                            {filesStats.total_files}
-                          </div>
-                          <div className="text-sm text-gray-600 dark:text-gray-400">
-                            Total Files
-                          </div>
-                        </div>
-                        <div className="bg-white dark:bg-gray-800 p-4 rounded-lg border border-gray-200 dark:border-gray-700">
-                          <div className="text-2xl font-bold text-green-600 dark:text-green-400">
-                            {filesStats.total_images}
-                          </div>
-                          <div className="text-sm text-gray-600 dark:text-gray-400">
-                            Images
-                          </div>
-                        </div>
-                        <div className="bg-white dark:bg-gray-800 p-4 rounded-lg border border-gray-200 dark:border-gray-700">
-                          <div className="text-2xl font-bold text-purple-600 dark:text-purple-400">
-                            {filesStats.total_documents}
-                          </div>
-                          <div className="text-sm text-gray-600 dark:text-gray-400">
-                            Documents
-                          </div>
-                        </div>
-                        <div className="bg-white dark:bg-gray-800 p-4 rounded-lg border border-gray-200 dark:border-gray-700">
-                          <div className="text-2xl font-bold text-orange-600 dark:text-orange-400">
-                            {formatFileSize(filesStats.total_size_bytes)}
-                          </div>
-                          <div className="text-sm text-gray-600 dark:text-gray-400">
-                            Total Size
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Files List */}
-                      <div className="space-y-3">
-                        {userFiles.map((file) => (
-                          <div
-                            key={file.id}
-                            className="flex items-center justify-between p-4 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700"
-                          >
-                            <div className="flex items-center gap-3">
-                              <div
-                                className={`w-8 h-8 rounded-lg flex items-center justify-center ${
-                                  file.type === "image"
-                                    ? "bg-green-100 dark:bg-green-900/20"
-                                    : "bg-purple-100 dark:bg-purple-900/20"
-                                }`}
-                              >
-                                {file.type === "image" ? (
-                                  <svg
-                                    className="w-4 h-4 text-green-600 dark:text-green-400"
-                                    fill="none"
-                                    stroke="currentColor"
-                                    viewBox="0 0 24 24"
-                                  >
-                                    <path
-                                      strokeLinecap="round"
-                                      strokeLinejoin="round"
-                                      strokeWidth={2}
-                                      d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V5a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
-                                    />
-                                  </svg>
-                                ) : (
-                                  <FileText className="w-4 h-4 text-purple-600 dark:text-purple-400" />
-                                )}
-                              </div>
-                              <div>
-                                <div className="font-medium text-gray-900 dark:text-white">
-                                  {file.file_name}
-                                </div>
-                                <div className="text-sm text-gray-500 dark:text-gray-400">
-                                  {formatFileSize(file.file_size)} •{" "}
-                                  {file.conversation_title} •{" "}
-                                  {new Date(
-                                    file.created_at
-                                  ).toLocaleDateString()}
-                                </div>
-                              </div>
-                            </div>
-                            <div className="text-xs text-gray-400 uppercase">
-                              {file.type}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </>
                   ) : (
-                    <div className="text-center py-8 sm:py-12">
-                      <div className="text-gray-400 dark:text-gray-500 mb-4">
-                        <svg
-                          className="w-12 h-12 sm:w-16 sm:h-16 mx-auto"
-                          fill="none"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={1.5}
-                            d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-                          />
-                        </svg>
-                      </div>
-                      <h3 className="text-base sm:text-lg font-medium text-gray-900 dark:text-white mb-2">
-                        No uploaded files yet
-                      </h3>
-                      <p className="text-sm text-gray-600 dark:text-gray-400 max-w-md mx-auto">
-                        When you upload images, documents, or other files in
-                        your conversations, they'll appear here for easy
-                        management.
-                      </p>
-                    </div>
+                    <>
+                      {/* Images Statistics */}
+                      {userImages.length > 0 && (
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
+                          <div className="bg-white dark:bg-gray-800 p-4 rounded-lg border border-gray-200 dark:border-gray-700">
+                            <div className="text-2xl font-bold text-blue-600 dark:text-blue-400">
+                              {imagesStats.total_images}
+                            </div>
+                            <div className="text-sm text-gray-600 dark:text-gray-400">
+                              Total Images
+                            </div>
+                          </div>
+                          <div className="bg-white dark:bg-gray-800 p-4 rounded-lg border border-gray-200 dark:border-gray-700">
+                            <div className="text-2xl font-bold text-green-600 dark:text-green-400">
+                              {userImages.filter(img => new Date(img.created_at) > new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)).length}
+                            </div>
+                            <div className="text-sm text-gray-600 dark:text-gray-400">
+                              This Week
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Image Gallery */}
+                      <ImageGallery images={userImages} />
+                    </>
                   )}
                 </div>
               </TabsContent>
