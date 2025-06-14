@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { User, Settings, LogOut, Crown } from "lucide-react";
+import { User, Settings, LogOut, Crown, LogIn } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -12,7 +12,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { supabase } from "@/lib/supabase";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useAuth } from "@/hooks/use-auth";
 import Link from "next/link";
 
 interface UserData {
@@ -26,36 +26,31 @@ interface UserButtonProps {
 }
 
 export function UserButton({ isPro = false }: UserButtonProps) {
-  const [userData, setUserData] = useState<UserData>({});
-  const [loading, setLoading] = useState(true);
+  const { user, loading } = useAuth();
   const router = useRouter();
-
-  useEffect(() => {
-    const getUser = async () => {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-
-      if (user) {
-        setUserData({
-          name:
-            user.user_metadata?.full_name ||
-            user.email?.split("@")[0] ||
-            "User",
-          email: user.email || "",
-          avatarUrl: user.user_metadata?.avatar_url,
-        });
-      }
-      setLoading(false);
-    };
-
-    getUser();
-  }, []);
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
     router.push("/login");
   };
+
+  const handleSignIn = () => {
+    router.push("/login");
+  };
+
+  // Extract user data from the auth user
+  const userData: UserData = React.useMemo(() => {
+    if (!user) return {};
+
+    return {
+      name:
+        user.user_metadata?.full_name ||
+        user.email?.split("@")[0] ||
+        "User",
+      email: user.email || "",
+      avatarUrl: user.user_metadata?.avatar_url,
+    };
+  }, [user]);
 
   if (loading) {
     return (
@@ -68,6 +63,29 @@ export function UserButton({ isPro = false }: UserButtonProps) {
         <div className="flex-1">
           <div className="h-4 bg-gray-200 rounded animate-pulse mb-1"></div>
           <div className="h-3 bg-gray-200 rounded animate-pulse w-16"></div>
+        </div>
+      </Button>
+    );
+  }
+
+  // Show sign in button if no user
+  if (!user) {
+    return (
+      <Button
+        onClick={handleSignIn}
+        variant="ghost"
+        className="w-full h-auto p-3 justify-start gap-3 hover:bg-sidebar-accent"
+      >
+        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-gray-400 to-gray-600 flex items-center justify-center text-white text-sm font-semibold flex-shrink-0">
+          <LogIn className="w-4 h-4" />
+        </div>
+        <div className="flex-1 min-w-0 text-left">
+          <span className="text-sm font-medium text-sidebar-foreground">
+            Sign In
+          </span>
+          <span className="text-xs text-sidebar-foreground/70 truncate block">
+            Access your chats
+          </span>
         </div>
       </Button>
     );
@@ -109,10 +127,6 @@ export function UserButton({ isPro = false }: UserButtonProps) {
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-56">
-        <DropdownMenuItem>
-          <User className="mr-2 h-4 w-4" />
-          <span>Profile</span>
-        </DropdownMenuItem>
         <DropdownMenuItem>
           <Link href="/settings" className="flex items-center gap-2 w-full">
             <Settings className="mr-2 h-4 w-4" />
