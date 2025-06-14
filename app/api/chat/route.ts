@@ -5,14 +5,44 @@ import { sundarPichaiPrompt } from "@/prompt/persona/sundar-pichai-prompt"
 import { createGoogleGenerativeAI } from "@ai-sdk/google"
 import { streamText, generateText, tool, experimental_generateImage as generateImage } from "ai"
 import { z } from "zod"
+import { createServerSupabaseClient, requireAuth, uploadImageToStorage } from '@/lib/supabase-server';
 
 export const maxDuration = 30
 
 export async function POST(req: Request) {
     try {
-        const { messages, persona } = await req.json()
+        const { messages, persona, conversationId } = await req.json()
         const apiKey = req.headers.get("x-api-key")
 
+        // Require authentication for API access
+        const user = await requireAuth();
+
+        // Fetch user preferences for AI personalization
+        const supabase = await createServerSupabaseClient();
+        const { data: userPreferences } = await supabase
+            .from('user_preferences')
+            .select('*')
+            .eq('user_id', user.id)
+            .single();
+
+        // Check if conversationId is provided and validate format
+        let validConversationId = null;
+        if (conversationId) {
+            // Validate UUID format - allow null/undefined to proceed without conversation saving
+            const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+            if (uuidRegex.test(conversationId)) {
+                validConversationId = conversationId;
+            } else {
+                // Don't throw error, just proceed without saving to database
+                validConversationId = null;
+            }
+        }
+
+        // Get the latest user message to save to database (only if we have valid conversation ID)
+        const latestUserMessage = messages[messages.length - 1];
+        if (latestUserMessage && latestUserMessage.role === 'user' && validConversationId) {
+          await saveMessageToDatabase(validConversationId, 'user', latestUserMessage.content);
+        }
 
         const google = createGoogleGenerativeAI({
             apiKey: apiKey || process.env.GOOGLE_GENERATIVE_AI_API_KEY,
@@ -20,15 +50,25 @@ export async function POST(req: Request) {
 
         const model = google("gemini-2.0-flash")
 
-        const imageModel = google("gemini-2.0-flash-exp")
-
-        console.log("Model created successfully")
-
         // Select system prompt based on persona
         let systemPrompt = defaultPrompt()
 
+        // Add user preferences to system prompt for personalization
+        if (userPreferences) {
+            const personalizationContext = `
+
+USER PERSONALIZATION CONTEXT:
+${userPreferences.display_name ? `- User's preferred name: ${userPreferences.display_name}` : ''}
+${userPreferences.occupation ? `- User's occupation: ${userPreferences.occupation}` : ''}
+${userPreferences.traits && userPreferences.traits.length > 0 ? `- User's traits/interests: ${userPreferences.traits.join(', ')}` : ''}
+${userPreferences.additional_info ? `- Additional user context: ${userPreferences.additional_info}` : ''}
+
+Please use this information to personalize your responses appropriately. Address the user by their preferred name when appropriate, and tailor your responses to their occupation, interests, and context when relevant.`;
+
+            systemPrompt += personalizationContext;
+        }
+
         if (persona) {
-            console.log("Using persona:", persona)
             switch (persona.toLowerCase()) {
                 case 'mrbeast':
                     systemPrompt = mrBeastPrompt()
@@ -41,6 +81,21 @@ export async function POST(req: Request) {
                     break
                 default:
                     systemPrompt = defaultPrompt()
+            }
+            
+            // Add user preferences to persona prompts as well
+            if (userPreferences) {
+                const personalizationContext = `
+
+USER PERSONALIZATION CONTEXT:
+${userPreferences.display_name ? `- User's preferred name: ${userPreferences.display_name}` : ''}
+${userPreferences.occupation ? `- User's occupation: ${userPreferences.occupation}` : ''}
+${userPreferences.traits && userPreferences.traits.length > 0 ? `- User's traits/interests: ${userPreferences.traits.join(', ')}` : ''}
+${userPreferences.additional_info ? `- Additional user context: ${userPreferences.additional_info}` : ''}
+
+Please use this information to personalize your responses appropriately while maintaining your persona. Address the user by their preferred name when appropriate, and tailor your responses to their occupation, interests, and context when relevant.`;
+
+                systemPrompt += personalizationContext;
             }
         }
 
@@ -65,8 +120,6 @@ export async function POST(req: Request) {
                         discount: z.number().optional().describe("Discount percentage"),
                     }),
                     execute: async (params) => {
-                        console.log("Executing generateProductCard tool:", params)
-
                         if (params.count === 1) {
                             return params
                         }
@@ -90,8 +143,6 @@ export async function POST(req: Request) {
                         location: z.string().describe("Location name (city, state, country)"),
                     }),
                     execute: async (params) => {
-                        console.log("Executing generateWeatherCard tool:", params)
-
                         try {
                             const apiKey = process.env.ACCUWEATHER_API_KEY
                             if (!apiKey) {
@@ -99,7 +150,6 @@ export async function POST(req: Request) {
                             }
 
                             const locationSearchUrl = `https://dataservice.accuweather.com/locations/v1/cities/search?apikey=${apiKey}&q=${encodeURIComponent(params.location)}`
-                            console.log("Searching for location:", params.location)
 
                             const locationResponse = await fetch(locationSearchUrl)
                             const locationData = await locationResponse.json()
@@ -113,7 +163,6 @@ export async function POST(req: Request) {
 
                             // Get current weather conditions
                             const weatherUrl = `https://dataservice.accuweather.com/currentconditions/v1/${locationKey}?apikey=${apiKey}&details=true`
-                            console.log("Fetching weather for location key:", locationKey)
 
                             const weatherResponse = await fetch(weatherUrl)
                             const weatherData = await weatherResponse.json()
@@ -146,8 +195,6 @@ export async function POST(req: Request) {
                                 observationTime: currentWeather.LocalObservationDateTime,
                             }
                         } catch (error) {
-                            console.error("AccuWeather API error:", error)
-
                             // Return fallback data with error indication
                             return {
                                 location: params.location,
@@ -173,8 +220,6 @@ export async function POST(req: Request) {
                         ticker: z.string().describe("Stock ticker symbol (e.g., AAPL, GOOGL, MSFT, TATAMOTORS.BSE, TATASTEEL.NSE)"),
                     }),
                     execute: async (params) => {
-                        console.log("Executing generateStockCard tool:", params)
-
                         try {
                             const apiKey = process.env.ALPHA_VANTAGE_API_KEY
                             if (!apiKey) {
@@ -196,11 +241,9 @@ export async function POST(req: Request) {
                             let overviewData = null
                             let finalTicker = searchTicker
 
-                            // Try different ticker formats
+                            // Try ticker variants and fetch quote data
                             for (const tickerVariant of indianStockPatterns) {
                                 try {
-                                    console.log(`Trying ticker variant: ${tickerVariant}`)
-
                                     // Fetch quote data
                                     const quoteUrl = `https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=${tickerVariant}&apikey=${apiKey}`
                                     const quoteResponse = await fetch(quoteUrl)
@@ -210,11 +253,9 @@ export async function POST(req: Request) {
                                     if (tempQuoteData["Global Quote"] && tempQuoteData["Global Quote"]["05. price"]) {
                                         quoteData = tempQuoteData
                                         finalTicker = tickerVariant
-                                        console.log(`Success with ticker: ${tickerVariant}`)
                                         break
                                     }
                                 } catch (error) {
-                                    console.log(`Failed with ticker variant: ${tickerVariant}`, error)
                                     continue
                                 }
                             }
@@ -253,7 +294,6 @@ export async function POST(req: Request) {
                                 const overviewResponse = await fetch(overviewUrl)
                                 overviewData = await overviewResponse.json()
                             } catch (error) {
-                                console.log("Failed to fetch overview data:", error)
                                 overviewData = {}
                             }
 
@@ -344,8 +384,6 @@ export async function POST(req: Request) {
                                 lastUpdated: new Date().toISOString(),
                             }
                         } catch (error) {
-                            console.error("Alpha Vantage API error:", error)
-
                             // Return fallback data with error indication
                             return {
                                 name: `${params.ticker.toUpperCase()} Stock`,
@@ -388,12 +426,8 @@ export async function POST(req: Request) {
                             .default("1:1"),
                     }),
                     execute: async (params) => {
-                        console.log("Executing generateImage tool:", params)
-
                         try {
                             const imageModel = google("gemini-2.0-flash-preview-image-generation")
-
-                            console.log("Generating image with prompt:", params.prompt)
 
                             const result = await generateText({
                                 model: imageModel,
@@ -403,43 +437,41 @@ export async function POST(req: Request) {
                                 },
                             })
 
-                            console.log("Image generation result:", {
-                                hasFiles: !!result.files,
-                                filesLength: result.files?.length || 0,
-                                files: result.files?.map((f) => ({
-                                    mimeType: f.mimeType,
-                                    hasBase64: !!f.base64,
-                                    hasUint8Array: !!f.uint8Array,
-                                    base64Length: f.base64?.length || 0,
-                                })),
-                            })
-
                             // Check if files were generated
                             if (result.files && result.files.length > 0) {
                                 // Find the first image file
                                 const imageFile = result.files.find((file) => file.mimeType.startsWith("image/"))
 
                                 if (imageFile) {
-                                    console.log("Image file found:", {
-                                        mimeType: imageFile.mimeType,
-                                        hasBase64: !!imageFile.base64,
-                                        base64Length: imageFile.base64?.length || 0,
-                                    })
-
                                     // Use the base64 property directly from the AI SDK
                                     if (imageFile.base64) {
-                                        const imageUrl = `data:${imageFile.mimeType};base64,${imageFile.base64}`
+                                        // Upload image to Supabase Storage instead of storing base64
+                                        const { publicUrl, error: uploadError } = await uploadImageToStorage(
+                                            imageFile.base64,
+                                            imageFile.mimeType,
+                                            `generated-${Date.now()}-${Math.random().toString(36).substring(2, 15)}.${imageFile.mimeType.split('/')[1]}`
+                                        );
+
+                                        if (uploadError || !publicUrl) {
+                                            return {
+                                                prompt: params.prompt,
+                                                imageUrl: null,
+                                                error: uploadError || "Failed to upload image to storage",
+                                                aspectRatio: params.aspectRatio,
+                                                isGenerating: false,
+                                                success: false,
+                                            }
+                                        }
 
                                         return {
                                             prompt: params.prompt,
-                                            imageUrl: imageUrl,
+                                            imageUrl: publicUrl,
                                             aspectRatio: params.aspectRatio,
                                             isGenerating: false,
                                             success: true,
                                             error: null,
                                         }
                                     } else {
-                                        console.log("No base64 data found in image file")
                                         return {
                                             prompt: params.prompt,
                                             imageUrl: null,
@@ -450,7 +482,6 @@ export async function POST(req: Request) {
                                         }
                                     }
                                 } else {
-                                    console.log("No image file found in result")
                                     return {
                                         prompt: params.prompt,
                                         imageUrl: null,
@@ -461,7 +492,6 @@ export async function POST(req: Request) {
                                     }
                                 }
                             } else {
-                                console.log("No files in result")
                                 return {
                                     prompt: params.prompt,
                                     imageUrl: null,
@@ -472,7 +502,6 @@ export async function POST(req: Request) {
                                 }
                             }
                         } catch (error) {
-                            console.error("Image generation error:", error)
                             return {
                                 prompt: params.prompt,
                                 imageUrl: null,
@@ -486,12 +515,32 @@ export async function POST(req: Request) {
                 })
             },
             system: systemPrompt,
+            onFinish: async (result) => {
+                // Save assistant response with tool results (only if we have valid conversation ID)
+                if (validConversationId) {
+                    // Extract tool invocations and their results
+                    const toolResults = result.toolResults?.map(toolResult => ({
+                        toolCallId: `tool-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                        toolName: toolResult.toolName,
+                        args: toolResult.args,
+                        result: toolResult.result,
+                        state: 'result'
+                    })) || [];
+                    
+                    await saveMessageToDatabase(validConversationId, 'assistant', result.text, toolResults);
+                }
+            }
         })
 
-        console.log("StreamText result created")
         return result.toDataStreamResponse()
     } catch (error) {
-        console.error("Chat API error:", error)
+        if (error instanceof Error && error.message === 'Authentication required') {
+            return new Response(
+                JSON.stringify({ error: 'Authentication required' }),
+                { status: 401, headers: { "Content-Type": "application/json" } }
+            );
+        }
+        
         return new Response(
             JSON.stringify({
                 error: "Internal server error",
@@ -503,4 +552,93 @@ export async function POST(req: Request) {
             },
         )
     }
+}
+
+// Helper function to save message to database with tool results
+async function saveMessageToDatabase(conversationId: string, role: 'user' | 'assistant', content: string, toolResults?: any[]) {
+  try {
+    const supabase = await createServerSupabaseClient();
+    
+    // Prepare metadata for tool results
+    let metadata = null;
+    if (toolResults && toolResults.length > 0) {
+      metadata = {
+        toolResults: toolResults,
+        hasTools: true,
+        toolCount: toolResults.length
+      };
+    }
+    
+    const { data: message, error } = await supabase
+      .from('messages')
+      .insert({
+        conversation_id: conversationId,
+        role: role,
+        content: content,
+        metadata: metadata,
+        status: 'completed'
+      })
+      .select()
+      .single();
+
+    if (error) {
+      return null;
+    }
+
+    // Save any images from tool results to message_images table
+    if (message && toolResults) {
+      const imagePromises = [];
+      const processedImageUrls = new Set(); // Track processed URLs to avoid duplicates
+      
+      for (const tool of toolResults) {
+        // Handle generateImage tool specifically
+        if (tool.result && tool.toolName === 'generateImage' && tool.result.imageUrl) {
+          if (!processedImageUrls.has(tool.result.imageUrl)) {
+            processedImageUrls.add(tool.result.imageUrl);
+            imagePromises.push(
+              supabase.from('message_images').insert({
+                message_id: message.id,
+                image_url: tool.result.imageUrl,
+                alt_text: tool.result.prompt || 'Generated image'
+              })
+            );
+          }
+        }
+        
+        // Handle product cards specifically
+        else if (tool.toolName === 'generateProductCard' && tool.result) {
+          const products = Array.isArray(tool.result) ? tool.result : [tool.result];
+          
+          for (const product of products) {
+            if (product.imageUrl && !processedImageUrls.has(product.imageUrl)) {
+              processedImageUrls.add(product.imageUrl);
+              imagePromises.push(
+                supabase.from('message_images').insert({
+                  message_id: message.id,
+                  image_url: product.imageUrl,
+                  alt_text: product.imageAlt || product.title || 'Product image'
+                })
+              );
+            }
+          }
+        }
+        
+        // Handle other specific tool types that might have images
+        // (Add more specific handlers here for other tools if needed)
+      }
+      
+      // Execute all image insertions in parallel
+      if (imagePromises.length > 0) {
+        try {
+          await Promise.all(imagePromises);
+        } catch (imageError) {
+          // Silent fail for image saving
+        }
+      }
+    }
+
+    return message;
+  } catch (error) {
+    return null;
+  }
 }
