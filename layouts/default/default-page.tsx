@@ -19,6 +19,7 @@ import { useRouter } from "next/navigation";
 import { useTheme } from "@/util/theme-provider";
 import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
+import { useConversations } from "@/hooks/use-conversations";
 
 export default function DefaultPage() {
   const { isDarkMode } = useTheme();
@@ -36,10 +37,14 @@ export default function DefaultPage() {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
   const [showLimitModal, setShowLimitModal] = useState(false);
   const [showLimitWarning, setShowLimitWarning] = useState(false);
+  const [user, setUser] = useState<any>(null);
 
   const formRef = useRef<HTMLDivElement>(null);
   const addButtonRef = useRef<HTMLButtonElement>(null);
   const toolsButtonRef = useRef<HTMLButtonElement>(null);
+
+  // Add conversation management
+  const { createConversation } = useConversations();
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -48,6 +53,7 @@ export default function DefaultPage() {
       } = await supabase.auth.getUser();
 
       setIsAuthenticated(!!user);
+      setUser(user);
     };
 
     checkAuth();
@@ -57,6 +63,7 @@ export default function DefaultPage() {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event, session) => {
       setIsAuthenticated(!!session);
+      setUser(session?.user || null);
     });
 
     return () => subscription.unsubscribe();
@@ -100,14 +107,20 @@ export default function DefaultPage() {
     }
 
     setIsTransitioning(true);
-    setShowLimitWarning(false); // Hide warning when sending
-
-    // Don't increment API usage here - let the chat page handle it
-    // (window as any).incrementApiUsage?.();
+    setShowLimitWarning(false);
 
     try {
-      // Generate a unique chat ID
-      const chatId = Date.now().toString();
+      let conversationId: string;
+
+      if (isAuthenticated) {
+        // Create a proper conversation in the database
+        const title = textareaValue.trim().split(' ').slice(0, 6).join(' ');
+        const conversation = await createConversation(title.length > 40 ? title.substring(0, 37) + '...' : title);
+        conversationId = conversation.id;
+      } else {
+        // Generate a temporary chat ID for non-authenticated users
+        conversationId = Date.now().toString();
+      }
 
       // Create URL with message and persona for initial processing
       const searchParams = new URLSearchParams({
@@ -120,11 +133,24 @@ export default function DefaultPage() {
         searchParams.set("persona", selectedTool.persona);
       }
 
-      // Navigate to chat page - chat page will clean up URL after processing
-      router.push(`/c/${chatId}?${searchParams.toString()}`);
+      // Navigate to chat page
+      router.push(`/c/${conversationId}?${searchParams.toString()}`);
     } catch (error) {
-      console.error("Error navigating to chat:", error);
+      console.error("Error creating conversation:", error);
       setIsTransitioning(false);
+      
+      // Fallback to temporary ID if conversation creation fails
+      const chatId = Date.now().toString();
+      const searchParams = new URLSearchParams({
+        message: textareaValue.trim(),
+        transition: "true",
+      });
+
+      if (selectedTool?.persona) {
+        searchParams.set("persona", selectedTool.persona);
+      }
+
+      router.push(`/c/${chatId}?${searchParams.toString()}`);
     }
   };
 
@@ -168,8 +194,8 @@ export default function DefaultPage() {
           }`}
         >
           {isAuthenticated
-            ? "You've reached your daily API limit. Upgrade to Pro for 50 daily requests."
-            : "You've used all 5 free requests today. Sign in to get 20 daily requests or create an account for more features."}
+            ? "You've reached your daily API limit. Your conversations are saved and you can continue tomorrow or upgrade to Pro for 50 daily requests."
+            : "You've used all 5 free requests today. Sign in to get 20 daily requests, save your conversations, and access more features."}
         </p>
         <div className="flex gap-3">
           {!isAuthenticated && (
@@ -215,9 +241,27 @@ export default function DefaultPage() {
   return (
     <div className="min-h-screen flex flex-col">
       <div className="flex-1 flex flex-col items-center justify-center p-4">
-        <h2 className="text-2xl font-semibold mb-8">
-          How can I help you today?
-        </h2>
+        <div className="text-center mb-8">
+          <h2 className="text-2xl font-semibold mb-2">
+            How can I help you today?
+          </h2>
+          {isAuthenticated && user && (
+            <p className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+              Welcome back, {user.email?.split('@')[0]}! Your conversations are automatically saved.
+            </p>
+          )}
+          {!isAuthenticated && (
+            <p className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+              <button 
+                onClick={() => router.push('/login')}
+                className="text-blue-600 dark:text-blue-400 hover:underline"
+              >
+                Sign in
+              </button>
+              {' '}to save your conversations and get more daily requests.
+            </p>
+          )}
+        </div>
 
         <div className="w-full max-w-4xl">
           <PromptBox onPromptsChange={setSelectedPrompts} />
@@ -272,7 +316,7 @@ export default function DefaultPage() {
                   You've hit your daily limit of 5 requests.
                 </p>
                 <p className="text-xs mt-1 opacity-90">
-                  Sign in to get 20 daily requests or create an account for more features.
+                  Sign in to get 20 daily requests, save conversations, and access more features.
                 </p>
               </div>
               <div className="flex gap-2">
