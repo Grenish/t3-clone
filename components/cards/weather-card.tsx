@@ -1,11 +1,10 @@
 import {
-  Cloud,
   Sun,
   CloudRain,
   CloudSnowIcon as Snow,
-  Wind,
-  Thermometer,
+  Cloud,
   Droplets,
+  Wind,
 } from "lucide-react";
 
 interface WeatherData {
@@ -25,18 +24,35 @@ export function WeatherCard({ data }: WeatherCardProps) {
   const getWeatherIcon = (condition: string) => {
     const lowerCondition = condition.toLowerCase();
     if (lowerCondition.includes("sun") || lowerCondition.includes("clear")) {
-      return <Sun className="h-10 w-10 text-amber-400 dark:text-amber-300" fill="currentColor" />;
+      return (
+        <Sun
+          className="h-10 w-10 text-amber-400 dark:text-amber-300"
+          fill="currentColor"
+        />
+      );
     }
     if (lowerCondition.includes("rain") || lowerCondition.includes("shower")) {
-      return <CloudRain className="h-10 w-10 text-blue-400 dark:text-blue-300" />;
+      return (
+        <CloudRain className="h-10 w-10 text-blue-400 dark:text-blue-300" />
+      );
     }
     if (lowerCondition.includes("snow")) {
       return <Snow className="h-10 w-10 text-slate-300 dark:text-slate-200" />;
     }
     if (lowerCondition.includes("cloud")) {
-      return <Cloud className="h-10 w-10 text-slate-400 dark:text-slate-300" fill="currentColor" />;
+      return (
+        <Cloud
+          className="h-10 w-10 text-slate-400 dark:text-slate-300"
+          fill="currentColor"
+        />
+      );
     }
-    return <Sun className="h-10 w-10 text-amber-400 dark:text-amber-300" fill="currentColor" />;
+    return (
+      <Sun
+        className="h-10 w-10 text-amber-400 dark:text-amber-300"
+        fill="currentColor"
+      />
+    );
   };
 
   const getCardTheme = (condition: string) => {
@@ -111,7 +127,7 @@ export function WeatherCard({ data }: WeatherCardProps) {
           <div className="space-y-1">
             <div className="flex items-center space-x-2">
               <Droplets className="h-3.5 w-3.5 text-slate-400 dark:text-gray-400" />
-              <span className="text-xs text-slate-500 dark:text-gray-400 uppercase tracking-wide">
+              <span className="text-xs text-slate-500 dark:text-gray-400">
                 Humidity
               </span>
             </div>
@@ -123,8 +139,8 @@ export function WeatherCard({ data }: WeatherCardProps) {
           <div className="space-y-1">
             <div className="flex items-center space-x-2">
               <Wind className="h-3.5 w-3.5 text-slate-400 dark:text-gray-400" />
-              <span className="text-xs text-slate-500 dark:text-gray-400 uppercase tracking-wide">
-                Wind
+              <span className="text-xs text-slate-500 dark:text-gray-400">
+                Wind Speed
               </span>
             </div>
             <p className="text-sm font-medium text-slate-900 dark:text-gray-100">
@@ -136,7 +152,7 @@ export function WeatherCard({ data }: WeatherCardProps) {
         {/* Description */}
         {data.description && (
           <div className="mt-5 pt-4 border-t border-slate-100 dark:border-gray-700">
-            <p className="text-xs text-slate-600 dark:text-gray-400 leading-relaxed">
+            <p className="text-sm text-slate-600 dark:text-gray-300 leading-relaxed">
               {data.description}
             </p>
           </div>
