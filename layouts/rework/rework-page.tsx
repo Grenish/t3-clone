@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { gsap } from "gsap";
 import { useTheme } from "@/util/theme-provider";
 import { supabase } from "@/lib/supabase";
+import { useConversations } from "@/hooks/use-conversations";
 import GradientBall from "@/components/gradient-ball";
 import PromptBox from "@/components/prompt-box";
 import TimeGreetings from "@/components/time-greetings";
