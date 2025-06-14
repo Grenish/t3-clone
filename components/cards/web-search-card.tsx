@@ -1,4 +1,4 @@
-import { ExternalLink, Clock, Globe, Search } from "lucide-react";
+import { Search, Clock, ExternalLink } from "lucide-react";
 import { useTheme } from "@/util/theme-provider";
 
 interface WebSearchSource {
@@ -80,10 +80,10 @@ export default function WebSearchCard({ data }: WebSearchCardProps) {
               href={source.link}
               target="_blank"
               rel="noopener noreferrer"
-              className={`inline-flex items-center font-medium text-sm mx-0.5 hover:underline ${
-                isDarkMode 
-                  ? 'text-blue-400 hover:text-blue-300' 
-                  : 'text-blue-600 hover:text-blue-800'
+              className={`inline-flex items-center px-1 py-0.5 mx-0.5 rounded text-xs font-medium transition-colors ${
+                isDarkMode
+                  ? 'bg-blue-900/30 text-blue-300 hover:bg-blue-900/50'
+                  : 'bg-blue-100 text-blue-700 hover:bg-blue-200'
               }`}
               title={source.title}
             >
@@ -151,31 +151,54 @@ export default function WebSearchCard({ data }: WebSearchCardProps) {
           }`}>Sources:</h4>
           <div className="space-y-2">
             {data.sources.map((source) => (
-              <div key={source.id} className="flex items-start gap-2 text-sm">
-                <span className={`font-medium min-w-[24px] ${
-                  isDarkMode ? 'text-blue-400' : 'text-blue-600'
-                }`}>[{source.id}]</span>
+              <div
+                key={source.id}
+                className={`flex items-start gap-3 p-3 rounded-lg border transition-colors hover:border-opacity-50 ${
+                  isDarkMode
+                    ? 'border-gray-700 hover:bg-gray-750'
+                    : 'border-gray-200 hover:bg-gray-50'
+                }`}
+              >
+                <span className={`flex-shrink-0 w-6 h-6 rounded-full text-xs font-medium flex items-center justify-center ${
+                  isDarkMode
+                    ? 'bg-gray-700 text-gray-300'
+                    : 'bg-gray-100 text-gray-600'
+                }`}>
+                  {source.id}
+                </span>
                 <div className="flex-1 min-w-0">
-                  <a
-                    href={source.link}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className={`font-medium line-clamp-1 hover:underline ${
-                      isDarkMode 
-                        ? 'text-blue-400 hover:text-blue-300' 
-                        : 'text-blue-600 hover:text-blue-800'
-                    }`}
-                  >
-                    {source.title}
-                  </a>
-                  <div className="flex items-center gap-1 mt-0.5">
-                    <span className={`text-xs ${
-                      isDarkMode ? 'text-green-400' : 'text-green-700'
-                    }`}>{source.displayLink}</span>
-                    <ExternalLink className={`w-3 h-3 ${
-                      isDarkMode ? 'text-gray-500' : 'text-gray-400'
-                    }`} />
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex-1 min-w-0">
+                      <h5 className={`text-sm font-medium line-clamp-2 ${
+                        isDarkMode ? 'text-gray-100' : 'text-gray-900'
+                      }`}>
+                        {source.title}
+                      </h5>
+                      <p className={`text-xs mt-1 ${
+                        isDarkMode ? 'text-gray-400' : 'text-gray-500'
+                      }`}>
+                        {source.displayLink}
+                      </p>
+                    </div>
+                    <a
+                      href={source.link}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className={`flex-shrink-0 p-1 transition-colors ${
+                        isDarkMode
+                          ? 'text-gray-500 hover:text-gray-300'
+                          : 'text-gray-400 hover:text-gray-600'
+                      }`}
+                      title="Open link"
+                    >
+                      <ExternalLink className="w-4 h-4" />
+                    </a>
                   </div>
+                  <p className={`text-sm mt-2 line-clamp-2 ${
+                    isDarkMode ? 'text-gray-300' : 'text-gray-600'
+                  }`}>
+                    {source.snippet}
+                  </p>
                 </div>
               </div>
             ))}
