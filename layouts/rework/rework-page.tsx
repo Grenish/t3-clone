@@ -40,8 +40,10 @@ export default function ReworkPage() {
   const [isTransitioning, setIsTransitioning] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
   const [userName, setUserName] = useState<string>("Guest");
+  const [user, setUser] = useState<any>(null);
   const [showLimitModal, setShowLimitModal] = useState(false);
   const [showLimitWarning, setShowLimitWarning] = useState(false);
+  const [isCreatingConversation, setIsCreatingConversation] = useState(false);
   const { isDarkMode } = useTheme();
   const pageRef = useRef<HTMLDivElement>(null);
   const formRef = useRef<HTMLDivElement>(null);
@@ -55,6 +57,8 @@ export default function ReworkPage() {
   const toolsButtonRef = useRef<HTMLButtonElement>(
     null
   ) as React.RefObject<HTMLButtonElement>;
+
+  const { createConversation } = useConversations();
 
   const defaultPromptSuggestions = [
     "Explain how an AI can automate customer support.",
@@ -98,47 +102,131 @@ export default function ReworkPage() {
     return `${truncatedName}.${extension}`;
   };
 
-  const handleSend = (e: React.FormEvent) => {
+  const handleSend = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (textareaValue.trim() && !isTransitioning) {
-      // Check if user can make API call
-      if (!(window as any).canMakeApiCall?.()) {
-        if (!isAuthenticated) {
-          setShowLimitWarning(true);
-        } else {
-          setShowLimitModal(true);
+    
+    // Early validation checks
+    if (!textareaValue.trim() || isTransitioning) return;
+    
+    // Prevent multiple simultaneous submissions
+    if (isCreatingConversation) {
+      console.log('Already creating conversation, skipping duplicate request');
+      return;
+    }
+
+    // Check if user can make API call
+    if (!(window as any).canMakeApiCall?.()) {
+      if (!isAuthenticated) {
+        setShowLimitWarning(true);
+      } else {
+        setShowLimitModal(true);
+      }
+      return;
+    }
+
+    // Set loading states
+    setIsTransitioning(true);
+    setShowLimitWarning(false);
+    setIsCreatingConversation(true);
+
+    // Create AbortController for this operation
+    const abortController = new AbortController();
+    
+    try {
+      let conversationId: string;
+
+      // CRITICAL FIX: Ensure we have a definitive authentication state
+      // If isAuthenticated is null (still checking), wait for it to resolve
+      let finalAuthState = isAuthenticated;
+      if (finalAuthState === null) {
+        console.log('Authentication state undefined, checking current auth...');
+        const { data: { user } } = await supabase.auth.getUser();
+        finalAuthState = !!user;
+        setIsAuthenticated(finalAuthState);
+        setUser(user);
+      }
+
+      if (finalAuthState) {
+        // Create a proper conversation in the database first with retry logic
+        const title = textareaValue.trim().split(' ').slice(0, 6).join(' ');
+        const fallbackTitle = title.length > 40 ? title.substring(0, 37) + '...' : title;
+        
+        console.log('Creating conversation with title:', fallbackTitle);
+        
+        // Add retry logic with exponential backoff
+        let retries = 0;
+        let conversation = null;
+        
+        while (retries < 2 && !conversation) {
+          try {
+            if (retries > 0) {
+              await new Promise(resolve => setTimeout(resolve, 500 * Math.pow(2, retries)));
+              console.log(`Retry attempt ${retries} for conversation creation`);
+            }
+            conversation = await createConversation(fallbackTitle || 'New Chat', textareaValue.trim());
+          } catch (err) {
+            console.error(`Attempt ${retries + 1} failed:`, err);
+            retries++;
+            
+            // On last retry, check if operation was cancelled
+            if (retries >= 2 || abortController.signal.aborted) {
+              console.log('Max retries reached or operation cancelled');
+              break;
+            }
+          }
         }
+        
+        // Check if operation was cancelled
+        if (abortController.signal.aborted) {
+          console.log('Conversation creation cancelled');
+          return;
+        }
+        
+        if (!conversation) {
+          throw new Error('Failed to create conversation after retries');
+        }
+        
+        conversationId = conversation.id;
+        console.log('Successfully created conversation:', conversationId);
+      } else {
+        // CRITICAL FIX: Always ensure temp- prefix for unauthenticated users
+        conversationId = `temp-${Date.now()}`;
+        console.log('Using temporary ID for unauthenticated user:', conversationId);
+      }
+
+      // Check again if operation was cancelled before navigation
+      if (abortController.signal.aborted) {
+        console.log('Operation cancelled before navigation');
         return;
       }
 
-      setIsTransitioning(true);
-      setShowLimitWarning(false); // Hide warning when sending
+      // Create URL with conversation ID and message for initial processing
+      const searchParams = new URLSearchParams({
+        message: textareaValue.trim(),
+        transition: "true",
+      });
 
-      // Don't increment API usage here - let the chat page handle it
-      // (window as any).incrementApiUsage?.();
+      // Add persona if selected
+      if (selectedTool?.persona) {
+        searchParams.set("persona", selectedTool.persona);
+      }
 
+      console.log('Navigating to conversation:', conversationId);
+      
+      // Trigger transition with enhanced easing and stagger
       const tl = gsap.timeline({
         onComplete: () => {
-          const chatId = Date.now().toString();
-
-          const searchParams = new URLSearchParams({
-            message: textareaValue.trim(),
-            transition: "true",
-          });
-
-          if (selectedTool?.persona) {
-            searchParams.set("persona", selectedTool.persona);
-          }
-
-          router.push(`/c/${chatId}?${searchParams.toString()}`);
+          router.push(`/c/${conversationId}?${searchParams.toString()}`);
         },
       });
 
+      // Animate out content with better sequencing
       tl.to(
-        headerContentRef.current,
+        ".prompt-item",
         {
           opacity: 0,
-          y: -50,
+          y: -30,
+          stagger: 0.05,
           duration: 0.4,
           ease: "power2.inOut",
         },
@@ -146,29 +234,69 @@ export default function ReworkPage() {
       );
 
       tl.to(
-        suggestionsRef.current,
+        formRef.current,
         {
+          y: -50,
           opacity: 0,
-          y: -30,
-          duration: 0.3,
+          duration: 0.5,
           ease: "power2.inOut",
         },
         0.1
       );
 
       tl.to(
-        formRef.current,
+        headerContentRef.current,
         {
-          y:
-            window.innerHeight -
-            formRef.current!.getBoundingClientRect().bottom -
-            16,
+          y: -60,
+          opacity: 0,
+          duration: 0.4,
+          ease: "power2.inOut",
+        },
+        0.15
+      );
+
+      tl.to(
+        ".container",
+        {
+          scale: 0.95,
+          filter: "blur(4px)",
           duration: 0.6,
           ease: "power2.inOut",
         },
         0.2
       );
+      
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        console.log('Conversation creation aborted');
+        return;
+      }
+      
+      console.error("Error creating conversation:", error);
+      setIsTransitioning(false);
+      setIsCreatingConversation(false);
+      
+      // CRITICAL FIX: Always use temp- prefix in fallback
+      const tempId = `temp-${Date.now()}`;
+      const searchParams = new URLSearchParams({
+        message: textareaValue.trim(),
+        transition: "true",
+      });
+
+      if (selectedTool?.persona) {
+        searchParams.set("persona", selectedTool.persona);
+      }
+
+      console.log('Falling back to temporary ID:', tempId);
+      router.push(`/c/${tempId}?${searchParams.toString()}`);
+    } finally {
+      // States will be reset by navigation or error handling above
     }
+
+    // Cleanup function for component unmount (this return will never execute due to navigation)
+    return () => {
+      abortController.abort();
+    };
   };
 
   useEffect(() => {
