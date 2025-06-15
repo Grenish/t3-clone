@@ -9,6 +9,96 @@ import { createServerSupabaseClient, requireAuth, uploadImageToStorage } from '@
 
 export const maxDuration = 30
 
+// Cache AI client globally for better performance
+let googleAIClient: any = null;
+function getGoogleAI(apiKey?: string) {
+  if (!googleAIClient) {
+    googleAIClient = createGoogleGenerativeAI({
+      apiKey: apiKey || process.env.GOOGLE_GENERATIVE_AI_API_KEY,
+    });
+  }
+  return googleAIClient;
+}
+
+// Cache user preferences globally with TTL
+const userPreferencesCache = new Map<string, { data: any; timestamp: number }>();
+const PREFERENCES_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+// Optimized user preferences fetching with caching
+async function getUserPreferences(userId: string, supabase: any) {
+  const cacheKey = `prefs_${userId}`;
+  const cached = userPreferencesCache.get(cacheKey);
+  
+  if (cached && Date.now() - cached.timestamp < PREFERENCES_CACHE_TTL) {
+    return cached.data;
+  }
+
+  const { data: userPreferences } = await supabase
+    .from('user_preferences')
+    .select('*')
+    .eq('user_id', userId)
+    .single();
+
+  if (userPreferences) {
+    userPreferencesCache.set(cacheKey, { 
+      data: userPreferences, 
+      timestamp: Date.now() 
+    });
+  }
+
+  return userPreferences;
+}
+
+// Optimized system prompt generation with caching
+const systemPromptCache = new Map<string, string>();
+
+function getSystemPrompt(persona: string | null, userPreferences: any): string {
+  const cacheKey = `${persona || 'default'}_${JSON.stringify(userPreferences)}`;
+  
+  if (systemPromptCache.has(cacheKey)) {
+    return systemPromptCache.get(cacheKey)!;
+  }
+
+  let systemPrompt = defaultPrompt();
+
+  // Select system prompt based on persona
+  if (persona) {
+    switch (persona.toLowerCase()) {
+      case 'mrbeast':
+        systemPrompt = mrBeastPrompt();
+        break;
+      case 'taylor swift':
+        systemPrompt = taylorSwiftPrompt();
+        break;
+      case 'sundar pichai':
+        systemPrompt = sundarPichaiPrompt();
+        break;
+      default:
+        systemPrompt = defaultPrompt();
+    }
+  }
+
+  // Add user preferences to system prompt for personalization
+  if (userPreferences) {
+    const personalizationContext = `
+
+USER PERSONALIZATION CONTEXT:
+${userPreferences.display_name ? `- User's preferred name: ${userPreferences.display_name}` : ''}
+${userPreferences.occupation ? `- User's occupation: ${userPreferences.occupation}` : ''}
+${userPreferences.traits && userPreferences.traits.length > 0 ? `- User's traits/interests: ${userPreferences.traits.join(', ')}` : ''}
+${userPreferences.additional_info ? `- Additional user context: ${userPreferences.additional_info}` : ''}
+
+Please use this information to personalize your responses appropriately${persona ? ' while maintaining your persona' : ''}. Address the user by their preferred name when appropriate, and tailor your responses to their occupation, interests, and context when relevant.`;
+
+    systemPrompt += personalizationContext;
+  }
+
+  // Cache the result
+  systemPromptCache.set(cacheKey, systemPrompt);
+  
+  return systemPrompt;
+}
+
 export async function POST(req: Request) {
     try {
         const { messages, persona, conversationId } = await req.json()
@@ -17,87 +107,71 @@ export async function POST(req: Request) {
         // Require authentication for API access
         const user = await requireAuth();
 
-        // Fetch user preferences for AI personalization
+        // Optimize Supabase client creation
         const supabase = await createServerSupabaseClient();
-        const { data: userPreferences } = await supabase
-            .from('user_preferences')
-            .select('*')
-            .eq('user_id', user.id)
-            .single();
+        
+        // Fetch user preferences with caching
+        const userPreferences = await getUserPreferences(user.id, supabase);
 
         // Check if conversationId is provided and validate format
         let validConversationId = null;
-        if (conversationId) {
-            // Validate UUID format - allow null/undefined to proceed without conversation saving
-            const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-            if (uuidRegex.test(conversationId)) {
-                validConversationId = conversationId;
-            } else {
-                // Don't throw error, just proceed without saving to database
+        if (conversationId && conversationId.trim()) {
+            // More lenient UUID validation - check for basic UUID structure
+            const trimmedId = conversationId.trim();
+            
+            // Skip temp IDs
+            if (trimmedId.startsWith('temp-')) {
+                console.log('Skipping temp conversation ID:', trimmedId);
                 validConversationId = null;
+            } else {
+                // Validate UUID format with more flexible regex
+                const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+                if (uuidRegex.test(trimmedId)) {
+                    // Verify the conversation exists and belongs to the user
+                    try {
+                        const { data: conversation, error } = await supabase
+                            .from('conversations')
+                            .select('id')
+                            .eq('id', trimmedId)
+                            .eq('user_id', user.id)
+                            .single();
+                        
+                        if (!error && conversation) {
+                            validConversationId = trimmedId;
+                            console.log('Using valid conversation ID:', validConversationId);
+                        } else {
+                            console.log('Conversation not found or access denied:', trimmedId);
+                            validConversationId = null;
+                        }
+                    } catch (dbError) {
+                        console.error('Database error checking conversation:', dbError);
+                        validConversationId = null;
+                    }
+                } else {
+                    console.log('Invalid UUID format:', trimmedId);
+                    validConversationId = null;
+                }
             }
         }
 
         // Get the latest user message to save to database (only if we have valid conversation ID)
         const latestUserMessage = messages[messages.length - 1];
         if (latestUserMessage && latestUserMessage.role === 'user' && validConversationId) {
-          await saveMessageToDatabase(validConversationId, 'user', latestUserMessage.content);
+          // Save user message asynchronously to not block AI response
+          console.log('Saving user message to conversation:', validConversationId);
+          saveMessageToDatabase(validConversationId, 'user', latestUserMessage.content).catch(error => {
+            console.error('Failed to save user message:', error);
+          });
+        } else if (latestUserMessage && latestUserMessage.role === 'user') {
+          console.log('No valid conversation ID - user message will not be saved to database');
         }
 
-        const google = createGoogleGenerativeAI({
-            apiKey: apiKey || process.env.GOOGLE_GENERATIVE_AI_API_KEY,
-        })
+        // Get optimized AI client
+        const google = getGoogleAI(apiKey || undefined);
+        const model = google("gemini-2.0-flash");
 
-        const model = google("gemini-2.0-flash")
-
-        // Select system prompt based on persona
-        let systemPrompt = defaultPrompt()
-
-        // Add user preferences to system prompt for personalization
-        if (userPreferences) {
-            const personalizationContext = `
-
-USER PERSONALIZATION CONTEXT:
-${userPreferences.display_name ? `- User's preferred name: ${userPreferences.display_name}` : ''}
-${userPreferences.occupation ? `- User's occupation: ${userPreferences.occupation}` : ''}
-${userPreferences.traits && userPreferences.traits.length > 0 ? `- User's traits/interests: ${userPreferences.traits.join(', ')}` : ''}
-${userPreferences.additional_info ? `- Additional user context: ${userPreferences.additional_info}` : ''}
-
-Please use this information to personalize your responses appropriately. Address the user by their preferred name when appropriate, and tailor your responses to their occupation, interests, and context when relevant.`;
-
-            systemPrompt += personalizationContext;
-        }
-
-        if (persona) {
-            switch (persona.toLowerCase()) {
-                case 'mrbeast':
-                    systemPrompt = mrBeastPrompt()
-                    break
-                case 'taylor swift':
-                    systemPrompt = taylorSwiftPrompt()
-                    break
-                case 'sundar pichai':
-                    systemPrompt = sundarPichaiPrompt()
-                    break
-                default:
-                    systemPrompt = defaultPrompt()
-            }
-            
-            // Add user preferences to persona prompts as well
-            if (userPreferences) {
-                const personalizationContext = `
-
-USER PERSONALIZATION CONTEXT:
-${userPreferences.display_name ? `- User's preferred name: ${userPreferences.display_name}` : ''}
-${userPreferences.occupation ? `- User's occupation: ${userPreferences.occupation}` : ''}
-${userPreferences.traits && userPreferences.traits.length > 0 ? `- User's traits/interests: ${userPreferences.traits.join(', ')}` : ''}
-${userPreferences.additional_info ? `- Additional user context: ${userPreferences.additional_info}` : ''}
-
-Please use this information to personalize your responses appropriately while maintaining your persona. Address the user by their preferred name when appropriate, and tailor your responses to their occupation, interests, and context when relevant.`;
-
-                systemPrompt += personalizationContext;
-            }
-        }
+        // Get cached system prompt
+        const systemPrompt = getSystemPrompt(persona, userPreferences);
 
         const result = streamText({
             model,
@@ -149,9 +223,26 @@ Please use this information to personalize your responses appropriately while ma
                                 throw new Error("AccuWeather API key not configured")
                             }
 
+                            // Add timeout to weather API call
+                            const controller = new AbortController();
+                            const timeoutId = setTimeout(() => controller.abort(), 8000); // 8 second timeout
+
                             const locationSearchUrl = `https://dataservice.accuweather.com/locations/v1/cities/search?apikey=${apiKey}&q=${encodeURIComponent(params.location)}`
 
-                            const locationResponse = await fetch(locationSearchUrl)
+                            const locationResponse = await fetch(locationSearchUrl, {
+                                signal: controller.signal,
+                                headers: {
+                                    'Accept': 'application/json',
+                                    'User-Agent': 'T3Chat/1.0'
+                                }
+                            });
+                            
+                            clearTimeout(timeoutId);
+                            
+                            if (!locationResponse.ok) {
+                                throw new Error(`Location API error: ${locationResponse.status}`);
+                            }
+
                             const locationData = await locationResponse.json()
 
                             if (!locationData || locationData.length === 0) {
@@ -161,10 +252,26 @@ Please use this information to personalize your responses appropriately while ma
                             const locationKey = locationData[0].Key
                             const locationName = `${locationData[0].LocalizedName}, ${locationData[0].Country?.LocalizedName || locationData[0].AdministrativeArea?.LocalizedName}`
 
-                            // Get current weather conditions
+                            // Get current weather conditions with timeout
+                            const weatherController = new AbortController();
+                            const weatherTimeoutId = setTimeout(() => weatherController.abort(), 8000);
+                            
                             const weatherUrl = `https://dataservice.accuweather.com/currentconditions/v1/${locationKey}?apikey=${apiKey}&details=true`
 
-                            const weatherResponse = await fetch(weatherUrl)
+                            const weatherResponse = await fetch(weatherUrl, {
+                                signal: weatherController.signal,
+                                headers: {
+                                    'Accept': 'application/json',
+                                    'User-Agent': 'T3Chat/1.0'
+                                }
+                            });
+                            
+                            clearTimeout(weatherTimeoutId);
+
+                            if (!weatherResponse.ok) {
+                                throw new Error(`Weather API error: ${weatherResponse.status}`);
+                            }
+
                             const weatherData = await weatherResponse.json()
 
                             if (!weatherData || weatherData.length === 0) {
@@ -173,7 +280,7 @@ Please use this information to personalize your responses appropriately while ma
 
                             const currentWeather = weatherData[0]
 
-                            // Extract weather information
+                            // Extract weather information with safe parsing
                             const temperature = Math.round(currentWeather.Temperature?.Metric?.Value || 0)
                             const condition = currentWeather.WeatherText || "Unknown"
                             const humidity = currentWeather.RelativeHumidity || 0
@@ -195,6 +302,7 @@ Please use this information to personalize your responses appropriately while ma
                                 observationTime: currentWeather.LocalObservationDateTime,
                             }
                         } catch (error) {
+                            console.error('Weather API error:', error);
                             // Return fallback data with error indication
                             return {
                                 location: params.location,
@@ -518,6 +626,7 @@ Please use this information to personalize your responses appropriately while ma
             onFinish: async (result) => {
                 // Save assistant response with tool results (only if we have valid conversation ID)
                 if (validConversationId) {
+                    console.log('Saving assistant response to conversation:', validConversationId);
                     // Extract tool invocations and their results
                     const toolResults = result.toolResults?.map(toolResult => ({
                         toolCallId: `tool-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
@@ -527,12 +636,23 @@ Please use this information to personalize your responses appropriately while ma
                         state: 'result'
                     })) || [];
                     
-                    await saveMessageToDatabase(validConversationId, 'assistant', result.text, toolResults);
+                    // Save message asynchronously
+                    saveMessageToDatabase(validConversationId, 'assistant', result.text, toolResults).catch(error => {
+                        console.error('Failed to save assistant message:', error);
+                    });
+                } else {
+                    console.log('No valid conversation ID - assistant response will not be saved to database');
                 }
             }
         })
 
-        return result.toDataStreamResponse()
+        return result.toDataStreamResponse({
+            headers: {
+                'Cache-Control': 'no-cache, no-store, must-revalidate',
+                'Pragma': 'no-cache',
+                'Expires': '0',
+            }
+        });
     } catch (error) {
         if (error instanceof Error && error.message === 'Authentication required') {
             return new Response(
@@ -541,6 +661,7 @@ Please use this information to personalize your responses appropriately while ma
             );
         }
         
+        console.error('Chat API error:', error);
         return new Response(
             JSON.stringify({
                 error: "Internal server error",
@@ -554,7 +675,7 @@ Please use this information to personalize your responses appropriately while ma
     }
 }
 
-// Helper function to save message to database with tool results
+// Optimized message saving function with error handling
 async function saveMessageToDatabase(conversationId: string, role: 'user' | 'assistant', content: string, toolResults?: any[]) {
   try {
     const supabase = await createServerSupabaseClient();
@@ -582,63 +703,69 @@ async function saveMessageToDatabase(conversationId: string, role: 'user' | 'ass
       .single();
 
     if (error) {
+      console.error('Message save error:', error);
       return null;
     }
 
-    // Save any images from tool results to message_images table
+    // Save any images from tool results to message_images table (async)
     if (message && toolResults) {
-      const imagePromises = [];
-      const processedImageUrls = new Set(); // Track processed URLs to avoid duplicates
-      
-      for (const tool of toolResults) {
-        // Handle generateImage tool specifically
-        if (tool.result && tool.toolName === 'generateImage' && tool.result.imageUrl) {
-          if (!processedImageUrls.has(tool.result.imageUrl)) {
-            processedImageUrls.add(tool.result.imageUrl);
-            imagePromises.push(
-              supabase.from('message_images').insert({
-                message_id: message.id,
-                image_url: tool.result.imageUrl,
-                alt_text: tool.result.prompt || 'Generated image'
-              })
-            );
-          }
-        }
-        
-        // Handle product cards specifically
-        else if (tool.toolName === 'generateProductCard' && tool.result) {
-          const products = Array.isArray(tool.result) ? tool.result : [tool.result];
-          
-          for (const product of products) {
-            if (product.imageUrl && !processedImageUrls.has(product.imageUrl)) {
-              processedImageUrls.add(product.imageUrl);
-              imagePromises.push(
-                supabase.from('message_images').insert({
-                  message_id: message.id,
-                  image_url: product.imageUrl,
-                  alt_text: product.imageAlt || product.title || 'Product image'
-                })
-              );
-            }
-          }
-        }
-        
-        // Handle other specific tool types that might have images
-        // (Add more specific handlers here for other tools if needed)
-      }
-      
-      // Execute all image insertions in parallel
-      if (imagePromises.length > 0) {
-        try {
-          await Promise.all(imagePromises);
-        } catch (imageError) {
-          // Silent fail for image saving
-        }
-      }
+      saveToolResultImages(message.id, toolResults).catch(console.error);
     }
 
     return message;
   } catch (error) {
+    console.error('Database save error:', error);
     return null;
+  }
+}
+
+// Separate function for saving tool result images (non-blocking)
+async function saveToolResultImages(messageId: string, toolResults: any[]) {
+  try {
+    const supabase = await createServerSupabaseClient();
+    const imagePromises = [];
+    const processedImageUrls = new Set(); // Track processed URLs to avoid duplicates
+    
+    for (const tool of toolResults) {
+      // Handle generateImage tool specifically
+      if (tool.result && tool.toolName === 'generateImage' && tool.result.imageUrl) {
+        if (!processedImageUrls.has(tool.result.imageUrl)) {
+          processedImageUrls.add(tool.result.imageUrl);
+          imagePromises.push(
+            supabase.from('message_images').insert({
+              message_id: messageId,
+              image_url: tool.result.imageUrl,
+              alt_text: tool.result.prompt || 'Generated image'
+            })
+          );
+        }
+      }
+      
+      // Handle product cards specifically
+      else if (tool.toolName === 'generateProductCard' && tool.result) {
+        const products = Array.isArray(tool.result) ? tool.result : [tool.result];
+        
+        for (const product of products) {
+          if (product.imageUrl && !processedImageUrls.has(product.imageUrl)) {
+            processedImageUrls.add(product.imageUrl);
+            imagePromises.push(
+              supabase.from('message_images').insert({
+                message_id: messageId,
+                image_url: product.imageUrl,
+                alt_text: product.imageAlt || product.title || 'Product image'
+              })
+            );
+          }
+        }
+      }
+    }
+    
+    // Execute all image insertions in parallel
+    if (imagePromises.length > 0) {
+      await Promise.allSettled(imagePromises);
+    }
+  } catch (error) {
+    console.error('Tool result images save error:', error);
+    // Silent fail for image saving
   }
 }
