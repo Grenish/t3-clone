@@ -8,16 +8,24 @@ import { generateText } from "ai";
 // Request validation schemas
 const createConversationSchema = z.object({
   title: z.string().min(1, 'Title is required').max(255, 'Title too long'),
+  initialMessage: z.string().optional(), // Add support for initial message
 });
 
 const generateTitleSchema = z.object({
   prompt: z.string().min(1, 'Prompt is required').max(1000, 'Prompt too long'),
 });
 
+// Optimized Supabase client with connection reuse
+let supabaseClientCache: any = null;
+
 async function createSupabaseServerClient(request?: NextRequest) {
+  // Reuse existing client for better performance
+  if (supabaseClientCache) {
+    return supabaseClientCache;
+  }
+
   if (request) {
-    // For middleware/API route usage
-    return createServerClient(
+    supabaseClientCache = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
       {
@@ -32,9 +40,8 @@ async function createSupabaseServerClient(request?: NextRequest) {
       }
     )
   } else {
-    // For server components
     const cookieStore = await cookies();
-    return createServerClient(
+    supabaseClientCache = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
       {
@@ -49,23 +56,35 @@ async function createSupabaseServerClient(request?: NextRequest) {
               );
             } catch {
               // The `setAll` method was called from a Server Component.
-              // This can be ignored if you have middleware refreshing
-              // user sessions.
             }
           },
         },
       }
     );
   }
+  
+  return supabaseClientCache;
+}
+
+// Cache for conversations list (5 minutes)
+const conversationsCache = new Map<string, { data: any; timestamp: number }>();
+const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+
+// Optimized AI client initialization
+let googleAI: any = null;
+function getGoogleAI() {
+  if (!googleAI) {
+    googleAI = createGoogleGenerativeAI({
+      apiKey: process.env.GOOGLE_GENERATIVE_AI_API_KEY,
+    });
+  }
+  return googleAI;
 }
 
 // Helper function to generate conversation title using AI
 async function generateConversationTitle(userPrompt: string): Promise<string> {
   try {
-    const google = createGoogleGenerativeAI({
-      apiKey: process.env.GOOGLE_GENERATIVE_AI_API_KEY,
-    });
-
+    const google = getGoogleAI();
     const model = google("gemini-2.0-flash");
 
     const result = await generateText({
@@ -102,6 +121,7 @@ Title:`,
 
     return title;
   } catch (error) {
+    console.error('AI title generation failed:', error);
     return generateFallbackTitle(userPrompt);
   }
 }
@@ -125,10 +145,8 @@ function generateFallbackTitle(userPrompt: string): string {
 
 export async function GET(req: NextRequest) {
   try {
-    // Create Supabase client
     const supabase = await createSupabaseServerClient(req);
     
-    // Use getUser() instead of getSession() for security - per Supabase docs
     const { data: { user }, error: userError } = await supabase.auth.getUser();
     
     if (userError || !user) {
@@ -138,13 +156,37 @@ export async function GET(req: NextRequest) {
       );
     }
     
-    // The RLS policies will automatically filter by user_id = auth.uid()
+    // Check if client is requesting fresh data (no-cache headers)
+    const cacheControl = req.headers.get('cache-control');
+    const shouldBypassCache = cacheControl?.includes('no-cache') || cacheControl?.includes('no-store');
+    
+    // Check cache first (only if not bypassing cache)
+    const cacheKey = `conversations_${user.id}`;
+    const cached = conversationsCache.get(cacheKey);
+    
+    if (!shouldBypassCache && cached && Date.now() - cached.timestamp < CACHE_DURATION) {
+      console.log('Serving conversations from cache');
+      return NextResponse.json({ 
+        conversations: cached.data,
+        count: cached.data.length
+      }, {
+        headers: {
+          'Cache-Control': 'public, s-maxage=60, stale-while-revalidate=300',
+        }
+      });
+    }
+
+    console.log('Fetching fresh conversations from database');
+    
+    // Optimized query with specific columns and limit
     const { data: conversations, error } = await supabase
       .from('conversations')
       .select('id, title, created_at, updated_at')
-      .order('updated_at', { ascending: false });
+      .order('updated_at', { ascending: false })
+      .limit(100); // Limit to 100 most recent conversations
 
     if (error) {
+      console.error('Conversations fetch error:', error);
       return NextResponse.json(
         { 
           error: 'Failed to fetch conversations',
@@ -154,12 +196,23 @@ export async function GET(req: NextRequest) {
       );
     }
 
+    const result = conversations || [];
+    
+    // Cache the result (always update cache with fresh data)
+    conversationsCache.set(cacheKey, { data: result, timestamp: Date.now() });
+    console.log(`Cached ${result.length} conversations for user ${user.id}`);
+
     return NextResponse.json({ 
-      conversations: conversations || [],
-      count: conversations?.length || 0
+      conversations: result,
+      count: result.length
+    }, {
+      headers: {
+        'Cache-Control': shouldBypassCache ? 'no-cache, no-store, must-revalidate' : 'public, s-maxage=60, stale-while-revalidate=300',
+      }
     });
     
   } catch (error) {
+    console.error('Conversations GET error:', error);
     return NextResponse.json(
       { error: 'Internal server error' }, 
       { status: 500 }
@@ -169,10 +222,11 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    // Create Supabase client
     const supabase = await createSupabaseServerClient(req);
     
-    // Use getUser() instead of getSession() for security - per Supabase docs
+    // Add a small delay to ensure auth state is settled
+    await new Promise(resolve => setTimeout(resolve, 100));
+    
     const { data: { user }, error: userError } = await supabase.auth.getUser();
     
     if (userError || !user) {
@@ -186,17 +240,46 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const validatedData = createConversationSchema.parse(body);
 
+    // Check if a conversation with the same title already exists recently (within last 30 seconds)
+    // This helps prevent duplicate conversations during navigation
+    const thirtySecondsAgo = new Date(Date.now() - 30 * 1000).toISOString();
+    const { data: existingConversations, error: checkError } = await supabase
+      .from('conversations')
+      .select('id')
+      .eq('user_id', user.id)
+      .eq('title', validatedData.title)
+      .gt('created_at', thirtySecondsAgo)
+      .order('created_at', { ascending: false })
+      .limit(1);
+      
+    // If we found a recent conversation with the same title, return it instead of creating a new one
+    if (!checkError && existingConversations && existingConversations.length > 0) {
+      console.log('Found existing conversation with same title, returning instead of creating duplicate');
+      
+      const { data: conversation } = await supabase
+        .from('conversations')
+        .select()
+        .eq('id', existingConversations[0].id)
+        .single();
+        
+      return NextResponse.json({ 
+        conversation,
+        message: 'Found existing conversation'
+      }, { status: 200 });
+    }
+
     // Insert conversation - explicitly set user_id
     const { data: conversation, error } = await supabase
       .from('conversations')
       .insert({
         title: validatedData.title,
-        user_id: user.id, // Explicitly set user_id
+        user_id: user.id,
       })
       .select()
       .single();
 
     if (error) {
+      console.error('Conversation creation error:', error);
       // Handle specific Supabase errors
       if (error.code === 'PGRST116') {
         return NextResponse.json(
@@ -221,6 +304,27 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Save initial message if provided
+    if (validatedData.initialMessage && validatedData.initialMessage.trim()) {
+      const { error: messageError } = await supabase
+        .from('messages')
+        .insert({
+          conversation_id: conversation.id,
+          role: 'user',
+          content: validatedData.initialMessage.trim(),
+          status: 'completed'
+        });
+
+      if (messageError) {
+        console.error('Initial message save error:', messageError);
+        // Don't fail the conversation creation, just log the error
+      }
+    }
+
+    // Clear cache for this user
+    const cacheKey = `conversations_${user.id}`;
+    conversationsCache.delete(cacheKey);
+
     return NextResponse.json({ 
       conversation,
       message: 'Conversation created successfully'
@@ -237,6 +341,7 @@ export async function POST(req: NextRequest) {
       );
     }
     
+    console.error('Conversation POST error:', error);
     return NextResponse.json(
       { error: 'Internal server error' }, 
       { status: 500 }
@@ -247,10 +352,8 @@ export async function POST(req: NextRequest) {
 // PUT endpoint to generate and update conversation title
 export async function PUT(req: NextRequest) {
   try {
-    // Create Supabase client
     const supabase = await createSupabaseServerClient(req);
     
-    // Use getUser() instead of getSession() for security
     const { data: { user }, error: userError } = await supabase.auth.getUser();
     
     if (userError || !user) {
@@ -271,8 +374,19 @@ export async function PUT(req: NextRequest) {
       );
     }
     
-    // Generate title using AI
-    const generatedTitle = await generateConversationTitle(prompt);
+    // Generate title using AI (with timeout)
+    const titlePromise = generateConversationTitle(prompt);
+    const timeoutPromise = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('Title generation timeout')), 10000)
+    );
+    
+    let generatedTitle: string;
+    try {
+      generatedTitle = await Promise.race([titlePromise, timeoutPromise]) as string;
+    } catch (error) {
+      console.error('Title generation failed, using fallback:', error);
+      generatedTitle = generateFallbackTitle(prompt);
+    }
     
     // Update the conversation with the generated title
     const { data: conversation, error } = await supabase
@@ -284,6 +398,7 @@ export async function PUT(req: NextRequest) {
       .single();
 
     if (error) {
+      console.error('Title update error:', error);
       return NextResponse.json(
         { 
           error: 'Failed to update conversation title',
@@ -300,6 +415,10 @@ export async function PUT(req: NextRequest) {
       );
     }
 
+    // Clear cache for this user
+    const cacheKey = `conversations_${user.id}`;
+    conversationsCache.delete(cacheKey);
+
     return NextResponse.json({ 
       conversation,
       title: generatedTitle,
@@ -307,6 +426,7 @@ export async function PUT(req: NextRequest) {
     });
     
   } catch (error) {
+    console.error('Title generation PUT error:', error);
     return NextResponse.json(
       { error: 'Internal server error' }, 
       { status: 500 }
