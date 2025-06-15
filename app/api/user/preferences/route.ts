@@ -3,6 +3,7 @@ import { cookies } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 
+// Cache the schema validation
 const userPreferencesSchema = z.object({
   display_name: z.string().max(50).optional(),
   occupation: z.string().max(100).optional(),
@@ -10,9 +11,17 @@ const userPreferencesSchema = z.object({
   additional_info: z.string().max(3000).optional(),
 });
 
+// Optimized Supabase client creation with connection pooling
+let supabaseClient: any = null;
+
 async function createSupabaseServerClient(request?: NextRequest) {
+  // Reuse client instance for better performance
+  if (supabaseClient) {
+    return supabaseClient;
+  }
+
   if (request) {
-    return createServerClient(
+    supabaseClient = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
       {
@@ -28,7 +37,7 @@ async function createSupabaseServerClient(request?: NextRequest) {
     )
   } else {
     const cookieStore = await cookies();
-    return createServerClient(
+    supabaseClient = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
       {
@@ -49,9 +58,15 @@ async function createSupabaseServerClient(request?: NextRequest) {
       }
     );
   }
+  
+  return supabaseClient;
 }
 
-// GET - Fetch user preferences
+// Cache for user preferences (in-memory cache for 5 minutes)
+const preferencesCache = new Map<string, { data: any; timestamp: number }>();
+const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+
+// GET - Fetch user preferences with caching
 export async function GET(req: NextRequest) {
   try {
     const supabase = await createSupabaseServerClient(req);
@@ -63,6 +78,18 @@ export async function GET(req: NextRequest) {
         { error: 'Authentication required' }, 
         { status: 401 }
       );
+    }
+
+    // Check cache first
+    const cacheKey = `preferences_${user.id}`;
+    const cached = preferencesCache.get(cacheKey);
+    
+    if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
+      return NextResponse.json({ preferences: cached.data }, {
+        headers: {
+          'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=600',
+        }
+      });
     }
 
     const { data: preferences, error } = await supabase
@@ -78,16 +105,24 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    return NextResponse.json({ 
-      preferences: preferences || {
-        display_name: null,
-        occupation: null,
-        traits: [],
-        additional_info: null
+    const result = preferences || {
+      display_name: null,
+      occupation: null,
+      traits: [],
+      additional_info: null
+    };
+
+    // Cache the result
+    preferencesCache.set(cacheKey, { data: result, timestamp: Date.now() });
+
+    return NextResponse.json({ preferences: result }, {
+      headers: {
+        'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=600',
       }
     });
     
   } catch (error) {
+    console.error('Preferences GET error:', error);
     return NextResponse.json(
       { error: 'Internal server error' }, 
       { status: 500 }
@@ -125,11 +160,16 @@ export async function POST(req: NextRequest) {
       .single();
 
     if (error) {
+      console.error('Preferences upsert error:', error);
       return NextResponse.json(
         { error: 'Failed to save preferences' }, 
         { status: 500 }
       );
     }
+
+    // Clear cache for this user
+    const cacheKey = `preferences_${user.id}`;
+    preferencesCache.delete(cacheKey);
 
     return NextResponse.json({ 
       preferences,
@@ -139,14 +179,12 @@ export async function POST(req: NextRequest) {
   } catch (error) {
     if (error instanceof z.ZodError) {
       return NextResponse.json(
-        { 
-          error: 'Invalid request data',
-          details: error.errors 
-        }, 
+        { error: 'Invalid request data', details: error.errors }, 
         { status: 400 }
       );
     }
     
+    console.error('Preferences POST error:', error);
     return NextResponse.json(
       { error: 'Internal server error' }, 
       { status: 500 }
