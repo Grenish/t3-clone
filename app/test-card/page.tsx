@@ -1,3 +1,5 @@
+"use client";
+
 import ImageLoadingCard from "@/components/cards/image-loading-card";
 import MediaRecommendationCard from "@/components/cards/media-recommendation-card";
 import ProductCard from "@/components/cards/product-card";
