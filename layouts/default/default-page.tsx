@@ -38,6 +38,7 @@ export default function DefaultPage() {
   const [showLimitModal, setShowLimitModal] = useState(false);
   const [showLimitWarning, setShowLimitWarning] = useState(false);
   const [user, setUser] = useState<any>(null);
+  const [isCreatingConversation, setIsCreatingConversation] = useState(false);
 
   const formRef = useRef<HTMLDivElement>(null);
   const addButtonRef = useRef<HTMLButtonElement>(null);
@@ -94,7 +95,15 @@ export default function DefaultPage() {
 
   const handleSend = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    
+    // Early validation checks
     if (!textareaValue.trim() || isTransitioning) return;
+    
+    // Prevent multiple simultaneous submissions
+    if (isCreatingConversation) {
+      console.log('Already creating conversation, skipping duplicate request');
+      return;
+    }
 
     // Check if user can make API call
     if (!(window as any).canMakeApiCall?.()) {
@@ -106,23 +115,83 @@ export default function DefaultPage() {
       return;
     }
 
+    // Set loading states
     setIsTransitioning(true);
     setShowLimitWarning(false);
+    setIsCreatingConversation(true);
 
+    // Create AbortController for this operation
+    const abortController = new AbortController();
+    
     try {
       let conversationId: string;
 
-      if (isAuthenticated) {
-        // Create a proper conversation in the database
-        const title = textareaValue.trim().split(' ').slice(0, 6).join(' ');
-        const conversation = await createConversation(title.length > 40 ? title.substring(0, 37) + '...' : title);
-        conversationId = conversation.id;
-      } else {
-        // Generate a temporary chat ID for non-authenticated users
-        conversationId = Date.now().toString();
+      // CRITICAL FIX: Ensure we have a definitive authentication state
+      // If isAuthenticated is null (still checking), wait for it to resolve
+      let finalAuthState = isAuthenticated;
+      if (finalAuthState === null) {
+        console.log('Authentication state undefined, checking current auth...');
+        const { data: { user } } = await supabase.auth.getUser();
+        finalAuthState = !!user;
+        setIsAuthenticated(finalAuthState);
+        setUser(user);
       }
 
-      // Create URL with message and persona for initial processing
+      if (finalAuthState) {
+        // Create a proper conversation in the database first with retry logic
+        const title = textareaValue.trim().split(' ').slice(0, 6).join(' ');
+        const fallbackTitle = title.length > 40 ? title.substring(0, 37) + '...' : title;
+        
+        console.log('🔥 Home: Creating conversation with title:', fallbackTitle);
+        
+        // Add retry logic with exponential backoff
+        let retries = 0;
+        let conversation = null;
+        
+        while (retries < 2 && !conversation) {
+          try {
+            if (retries > 0) {
+              await new Promise(resolve => setTimeout(resolve, 500 * Math.pow(2, retries)));
+              console.log(`🔥 Home: Retry attempt ${retries} for conversation creation`);
+            }
+            conversation = await createConversation(fallbackTitle || 'New Chat', textareaValue.trim());
+          } catch (err) {
+            console.error(`🔥 Home: Attempt ${retries + 1} failed:`, err);
+            retries++;
+            
+            // On last retry, check if operation was cancelled
+            if (retries >= 2 || abortController.signal.aborted) {
+              console.log('🔥 Home: Max retries reached or operation cancelled');
+              break;
+            }
+          }
+        }
+        
+        // Check if operation was cancelled
+        if (abortController.signal.aborted) {
+          console.log('🔥 Home: Conversation creation cancelled');
+          return;
+        }
+        
+        if (!conversation) {
+          throw new Error('Failed to create conversation after retries');
+        }
+        
+        conversationId = conversation.id;
+        console.log('🔥 Home: Successfully created conversation with real UUID:', conversationId);
+      } else {
+        // For unauthenticated users, use temp ID
+        conversationId = `temp-${Date.now()}`;
+        console.log('🔥 Home: Using temporary ID for unauthenticated user:', conversationId);
+      }
+
+      // Check again if operation was cancelled before navigation
+      if (abortController.signal.aborted) {
+        console.log('Operation cancelled before navigation');
+        return;
+      }
+
+      // Navigate to chat page with the conversation ID and message
       const searchParams = new URLSearchParams({
         message: textareaValue.trim(),
         transition: "true",
@@ -133,14 +202,22 @@ export default function DefaultPage() {
         searchParams.set("persona", selectedTool.persona);
       }
 
-      // Navigate to chat page
+      console.log('Navigating to conversation:', conversationId);
+      // Navigate to the conversation
       router.push(`/c/${conversationId}?${searchParams.toString()}`);
+      
     } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        console.log('Conversation creation aborted');
+        return;
+      }
+      
       console.error("Error creating conversation:", error);
       setIsTransitioning(false);
+      setIsCreatingConversation(false);
       
-      // Fallback to temporary ID if conversation creation fails
-      const chatId = Date.now().toString();
+      // CRITICAL FIX: Always use temp- prefix in fallback
+      const tempId = `temp-${Date.now()}`;
       const searchParams = new URLSearchParams({
         message: textareaValue.trim(),
         transition: "true",
@@ -150,8 +227,16 @@ export default function DefaultPage() {
         searchParams.set("persona", selectedTool.persona);
       }
 
-      router.push(`/c/${chatId}?${searchParams.toString()}`);
+      console.log('Falling back to temporary ID:', tempId);
+      router.push(`/c/${tempId}?${searchParams.toString()}`);
+    } finally {
+      // States will be reset during navigation
     }
+
+    // Cleanup function for component unmount (this return will never execute due to navigation)
+    return () => {
+      abortController.abort();
+    };
   };
 
   const handleRemoveFile = (index: number) => {
