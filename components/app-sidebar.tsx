@@ -57,8 +57,60 @@ export function AppSidebar() {
     chat.title.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  // Group conversations by time periods
-  const groupConversationsByTime = (conversations: any[]) => {
+  // Add real-time conversation updates listener
+  React.useEffect(() => {
+    // Listen for conversation updates from chat pages
+    const handleConversationUpdate = (event: CustomEvent) => {
+      const { id, title } = event.detail;
+      console.log('Sidebar received conversation update:', { id, title });
+      
+      // Only refresh if we have a valid UUID (not temp ID)
+      if (id && typeof id === 'string' && !id.startsWith('temp-')) {
+        refreshConversations();
+      }
+    };
+
+    // Listen for new conversations being created
+    const handleNewConversation = (event: CustomEvent) => {
+      const { id } = event.detail;
+      console.log('Sidebar received new conversation event:', id);
+      
+      // Only refresh if we have a valid UUID and enough time has passed
+      if (id && typeof id === 'string' && !id.startsWith('temp-')) {
+        // Small delay to ensure the conversation is saved in the database
+        setTimeout(() => {
+          refreshConversations();
+        }, 1000); // Increased delay to prevent race conditions
+      }
+    };
+
+    if (typeof window !== 'undefined') {
+      window.addEventListener('conversationUpdated', handleConversationUpdate as EventListener);
+      window.addEventListener('newConversationCreated', handleNewConversation as EventListener);
+    }
+
+    return () => {
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('conversationUpdated', handleConversationUpdate as EventListener);
+        window.removeEventListener('newConversationCreated', handleNewConversation as EventListener);
+      }
+    };
+  }, [refreshConversations]);
+
+  // Auto-refresh conversations periodically when authenticated
+  React.useEffect(() => {
+    if (!isAuthenticated) return;
+
+    // Refresh every 30 seconds for active updates
+    const interval = setInterval(() => {
+      refreshConversations();
+    }, 30000);
+
+    return () => clearInterval(interval);
+  }, [isAuthenticated, refreshConversations]);
+
+  // Optimized conversation grouping with memoization
+  const groupedConversations = React.useMemo(() => {
     const now = new Date();
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const yesterday = new Date(today);
@@ -76,7 +128,7 @@ export function AppSidebar() {
       older: [] as any[],
     };
 
-    conversations.forEach((conversation) => {
+    filteredHistory.forEach((conversation) => {
       const date = new Date(conversation.updated_at);
       if (date >= today) {
         groups.today.push(conversation);
@@ -92,9 +144,10 @@ export function AppSidebar() {
     });
 
     return groups;
-  };
+  }, [filteredHistory]);
 
-  const formatTimestamp = (timestamp: string) => {
+  // Optimized timestamp formatting with memoization
+  const formatTimestamp = React.useCallback((timestamp: string) => {
     const date = new Date(timestamp);
     const now = new Date();
     const diffMs = now.getTime() - date.getTime();
@@ -105,7 +158,7 @@ export function AppSidebar() {
     if (diffMins < 60) return `${diffMins}m ago`;
     if (diffHours < 24) return `${diffHours}h ago`;
     return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  };
+  }, []);
 
   const handleNewChat = async () => {
     router.push("/");
@@ -118,6 +171,8 @@ export function AppSidebar() {
     if (confirm("Are you sure you want to delete this conversation?")) {
       try {
         await deleteConversation(chatId);
+        // Refresh immediately after deletion
+        setTimeout(() => refreshConversations(), 100);
       } catch (error) {
         console.error("Failed to delete chat:", error);
         if (error instanceof Error && error.message === "Authentication required") {
@@ -127,12 +182,13 @@ export function AppSidebar() {
     }
   };
 
-  const handleRefresh = () => {
-    console.log("Refreshing conversations...");
+  const handleRefresh = React.useCallback(() => {
+    console.log("Manually refreshing conversations...");
     refreshConversations();
-  };
+  }, [refreshConversations]);
 
-  const ConversationGroup = ({ title, conversations, icon: Icon }: { 
+  // Memoized ConversationGroup component for better performance
+  const ConversationGroup = React.memo(({ title, conversations, icon: Icon }: { 
     title: string; 
     conversations: any[]; 
     icon: React.ElementType;
@@ -192,7 +248,7 @@ export function AppSidebar() {
         </div>
       </div>
     );
-  };
+  });
 
   // Show loading state while checking authentication
   if (isAuthenticated === null) {
@@ -341,23 +397,17 @@ export function AppSidebar() {
                       variant="ghost"
                       size="sm"
                       className="h-6 w-6 p-0 hover:bg-sidebar-accent/30"
+                      title="Refresh conversations"
                     >
                       <RefreshCw className="h-3 w-3 text-sidebar-foreground/50" />
                     </Button>
                   </div>
                   
-                  {(() => {
-                    const groups = groupConversationsByTime(filteredHistory);
-                    return (
-                      <>
-                        <ConversationGroup title="Today" conversations={groups.today} icon={Calendar} />
-                        <ConversationGroup title="Yesterday" conversations={groups.yesterday} icon={Clock} />
-                        <ConversationGroup title="Last 7 days" conversations={groups.lastWeek} icon={History} />
-                        <ConversationGroup title="Last 30 days" conversations={groups.lastMonth} icon={History} />
-                        <ConversationGroup title="Older" conversations={groups.older} icon={History} />
-                      </>
-                    );
-                  })()}
+                  <ConversationGroup title="Today" conversations={groupedConversations.today} icon={Calendar} />
+                  <ConversationGroup title="Yesterday" conversations={groupedConversations.yesterday} icon={Clock} />
+                  <ConversationGroup title="Last 7 days" conversations={groupedConversations.lastWeek} icon={History} />
+                  <ConversationGroup title="Last 30 days" conversations={groupedConversations.lastMonth} icon={History} />
+                  <ConversationGroup title="Older" conversations={groupedConversations.older} icon={History} />
                 </div>
               ) : (
                 <div className="text-center py-8 px-3">
