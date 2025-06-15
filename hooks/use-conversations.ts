@@ -24,9 +24,22 @@ export function useConversations() {
       return;
     }
     
+    // CRITICAL FIX: Global request deduplication for conversations fetch
+    const requestKey = 'conversations_fetch_request';
+    if ((window as any)[requestKey]) {
+      console.log('Conversations fetch already in progress, skipping duplicate request');
+      return;
+    }
+    
     try {
       setLoading(true);
       setError(null);
+      
+      // Mark request as in progress globally
+      (window as any)[requestKey] = {
+        timestamp: Date.now(),
+        type: 'fetch_conversations'
+      };
       
       const response = await fetch('/api/conversations', {
         credentials: 'include',
@@ -57,6 +70,8 @@ export function useConversations() {
       setHasFetched(true); // Mark as fetched even on error to prevent infinite retries
     } finally {
       setLoading(false);
+      // Clear the global request lock
+      delete (window as any)[requestKey];
     }
   }, [isAuthenticated, loading, hasFetched]);
 
@@ -77,7 +92,7 @@ export function useConversations() {
     }
   }, [isAuthenticated, authLoading, hasFetched, loading, fetchConversations]);
 
-  const createConversation = async (title: string) => {
+  const createConversation = async (title: string, initialMessage?: string) => {
     if (!isAuthenticated) {
       throw new Error('Authentication required');
     }
@@ -89,7 +104,10 @@ export function useConversations() {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ title }),
+        body: JSON.stringify({ 
+          title,
+          initialMessage // Add initialMessage support
+        }),
       });
 
       if (response.status === 401) {
@@ -176,10 +194,49 @@ export function useConversations() {
   };
 
   // Function to manually refresh conversations
-  const refreshConversations = useCallback(() => {
-    setHasFetched(false);
-    setError(null);
-  }, []);
+  const refreshConversations = useCallback(async () => {
+    if (!isAuthenticated) {
+      return;
+    }
+    
+    try {
+      setLoading(true);
+      setError(null);
+      
+      console.log('Refreshing conversations...');
+      
+      const response = await fetch('/api/conversations', {
+        credentials: 'include',
+        headers: {
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          'Pragma': 'no-cache',
+          'Expires': '0',
+        },
+      });
+      
+      if (response.status === 401) {
+        setConversations([]);
+        setError('Authentication required');
+        return;
+      }
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: Failed to refresh conversations`);
+      }
+      
+      const data = await response.json();
+      const newConversations = data.conversations || [];
+      
+      console.log('Fetched conversations:', newConversations.length);
+      setConversations(newConversations);
+      
+    } catch (err) {
+      console.error('Error refreshing conversations:', err);
+      setError(err instanceof Error ? err.message : 'Failed to refresh conversations');
+    } finally {
+      setLoading(false);
+    }
+  }, [isAuthenticated]);
 
   return {
     conversations,
