@@ -2,10 +2,17 @@ import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { NextRequest } from 'next/server';
 
+// Add cache for server client to improve performance
+let supabaseServerClientCache: any = null;
+
+// Creates a Supabase client for server-side usage
 export async function createServerSupabaseClient(request?: NextRequest) {
+  if (supabaseServerClientCache) {
+    return supabaseServerClientCache;
+  }
+
   if (request) {
-    // For middleware/API route usage
-    return createServerClient(
+    supabaseServerClientCache = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
       {
@@ -14,15 +21,14 @@ export async function createServerSupabaseClient(request?: NextRequest) {
             return request.cookies.getAll();
           },
           setAll(cookiesToSet) {
-            // Can't set cookies in API routes, but we can read them
+            // Can't set cookies on API routes, but we can read them
           },
         },
       }
     );
   } else {
-    // For server components
     const cookieStore = await cookies();
-    return createServerClient(
+    supabaseServerClientCache = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
       {
@@ -37,20 +43,23 @@ export async function createServerSupabaseClient(request?: NextRequest) {
               );
             } catch {
               // The `setAll` method was called from a Server Component.
-              // This can be ignored if you have middleware refreshing
-              // user sessions.
             }
           },
         },
       }
     );
   }
+
+  return supabaseServerClientCache;
 }
 
+// Validates user authentication or throws an error
 export async function requireAuth() {
-  const supabase = await createServerSupabaseClient();
+  // Add a small delay to ensure cookies are properly propagated
+  // This helps prevent race conditions in the authentication flow
+  await new Promise((resolve) => setTimeout(resolve, 100));
 
-  // Use getUser() instead of getSession() for security - per Supabase docs
+  const supabase = await createServerSupabaseClient();
   const {
     data: { user },
     error,
@@ -70,19 +79,26 @@ export async function uploadImageToStorage(
   fileName?: string
 ): Promise<{ publicUrl: string | null; error: string | null }> {
   try {
-    const supabase = await createServerSupabaseClient();
+    // Remove the data URL prefix if present
+    const base64Content = base64Data.includes('base64,') 
+      ? base64Data.split('base64,')[1] 
+      : base64Data;
 
-    // Remove data URL prefix if present
-    const base64 = base64Data.replace(/^data:image\/[a-z]+;base64,/, '');
+    if (!base64Content) {
+      return { publicUrl: null, error: 'Invalid base64 data' };
+    }
 
     // Convert base64 to buffer
-    const buffer = Buffer.from(base64, 'base64');
+    const buffer = Buffer.from(base64Content, 'base64');
 
     // Generate unique filename if not provided
     const timestamp = Date.now();
     const randomString = Math.random().toString(36).substring(2, 15);
     const extension = mimeType.split('/')[1] || 'png';
-    const finalFileName = fileName || `generated-image-${timestamp}-${randomString}.${extension}`;
+    const finalFileName =
+      fileName || `generated-image-${timestamp}-${randomString}.${extension}`;
+
+    const supabase = await createServerSupabaseClient();
 
     // Upload to storage bucket
     const { data, error } = await supabase.storage
