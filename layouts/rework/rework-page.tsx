@@ -1,11 +1,10 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { gsap } from "gsap";
 import { useTheme } from "@/util/theme-provider";
 import { supabase } from "@/lib/supabase";
-import { useConversations } from "@/hooks/use-conversations";
 import GradientBall from "@/components/gradient-ball";
 import PromptBox from "@/components/prompt-box";
 import TimeGreetings from "@/components/time-greetings";
@@ -21,7 +20,6 @@ import {
   Settings2,
   X,
   FileText,
-  Image,
   LogIn,
   UserPlus,
   AlertTriangle,
@@ -43,7 +41,7 @@ export default function ReworkPage() {
   const [user, setUser] = useState<any>(null);
   const [showLimitModal, setShowLimitModal] = useState(false);
   const [showLimitWarning, setShowLimitWarning] = useState(false);
-  const [isCreatingConversation, setIsCreatingConversation] = useState(false);
+  const [selectedModel, setSelectedModel] = useState<string>('gemini-2.0-flash');
   const { isDarkMode } = useTheme();
   const pageRef = useRef<HTMLDivElement>(null);
   const formRef = useRef<HTMLDivElement>(null);
@@ -58,8 +56,6 @@ export default function ReworkPage() {
     null
   ) as React.RefObject<HTMLButtonElement>;
 
-  const { createConversation } = useConversations();
-
   const defaultPromptSuggestions = [
     "Explain how an AI can automate customer support.",
     "Find me a weekend getaway destination near Mumbai.",
@@ -67,7 +63,6 @@ export default function ReworkPage() {
     "Convert this paragraph into a professional LinkedIn post.",
   ];
   
-
   const displayedSuggestions =
     selectedPrompts.length > 0 ? selectedPrompts : defaultPromptSuggestions;
 
@@ -102,17 +97,11 @@ export default function ReworkPage() {
     return `${truncatedName}.${extension}`;
   };
 
+  // SIMPLE SOLUTION: Just navigate to a new UUID immediately and let chat page handle everything
   const handleSend = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     
-    // Early validation checks
     if (!textareaValue.trim() || isTransitioning) return;
-    
-    // Prevent multiple simultaneous submissions
-    if (isCreatingConversation) {
-      console.log('Already creating conversation, skipping duplicate request');
-      return;
-    }
 
     // Check if user can make API call
     if (!(window as any).canMakeApiCall?.()) {
@@ -124,99 +113,30 @@ export default function ReworkPage() {
       return;
     }
 
-    // Set loading states
     setIsTransitioning(true);
     setShowLimitWarning(false);
-    setIsCreatingConversation(true);
 
-    // Create AbortController for this operation
-    const abortController = new AbortController();
-    
     try {
-      let conversationId: string;
+      // SIMPLE: Generate a real UUID immediately - no temp IDs, no complexity
+      const newConversationId = crypto.randomUUID();
+      
+      console.log('🔥 Rework: Generated UUID, navigating to:', newConversationId);
 
-      // CRITICAL FIX: Ensure we have a definitive authentication state
-      // If isAuthenticated is null (still checking), wait for it to resolve
-      let finalAuthState = isAuthenticated;
-      if (finalAuthState === null) {
-        console.log('Authentication state undefined, checking current auth...');
-        const { data: { user } } = await supabase.auth.getUser();
-        finalAuthState = !!user;
-        setIsAuthenticated(finalAuthState);
-        setUser(user);
-      }
-
-      if (finalAuthState) {
-        // Create a proper conversation in the database first with retry logic
-        const title = textareaValue.trim().split(' ').slice(0, 6).join(' ');
-        const fallbackTitle = title.length > 40 ? title.substring(0, 37) + '...' : title;
-        
-        console.log('Creating conversation with title:', fallbackTitle);
-        
-        // Add retry logic with exponential backoff
-        let retries = 0;
-        let conversation = null;
-        
-        while (retries < 2 && !conversation) {
-          try {
-            if (retries > 0) {
-              await new Promise(resolve => setTimeout(resolve, 500 * Math.pow(2, retries)));
-              console.log(`Retry attempt ${retries} for conversation creation`);
-            }
-            conversation = await createConversation(fallbackTitle || 'New Chat', textareaValue.trim());
-          } catch (err) {
-            console.error(`Attempt ${retries + 1} failed:`, err);
-            retries++;
-            
-            // On last retry, check if operation was cancelled
-            if (retries >= 2 || abortController.signal.aborted) {
-              console.log('Max retries reached or operation cancelled');
-              break;
-            }
-          }
-        }
-        
-        // Check if operation was cancelled
-        if (abortController.signal.aborted) {
-          console.log('Conversation creation cancelled');
-          return;
-        }
-        
-        if (!conversation) {
-          throw new Error('Failed to create conversation after retries');
-        }
-        
-        conversationId = conversation.id;
-        console.log('Successfully created conversation:', conversationId);
-      } else {
-        // CRITICAL FIX: Always ensure temp- prefix for unauthenticated users
-        conversationId = `temp-${Date.now()}`;
-        console.log('Using temporary ID for unauthenticated user:', conversationId);
-      }
-
-      // Check again if operation was cancelled before navigation
-      if (abortController.signal.aborted) {
-        console.log('Operation cancelled before navigation');
-        return;
-      }
-
-      // Create URL with conversation ID and message for initial processing
       const searchParams = new URLSearchParams({
         message: textareaValue.trim(),
         transition: "true",
+        modelId: selectedModel, // Include selected model
       });
 
-      // Add persona if selected
       if (selectedTool?.persona) {
         searchParams.set("persona", selectedTool.persona);
       }
-
-      console.log('Navigating to conversation:', conversationId);
       
-      // Trigger transition with enhanced easing and stagger
+      // Trigger transition animation
       const tl = gsap.timeline({
         onComplete: () => {
-          router.push(`/c/${conversationId}?${searchParams.toString()}`);
+          // Navigate to the new conversation with a real UUID
+          router.push(`/c/${newConversationId}?${searchParams.toString()}`);
         },
       });
 
@@ -267,36 +187,9 @@ export default function ReworkPage() {
       );
       
     } catch (error) {
-      if (error instanceof Error && error.name === 'AbortError') {
-        console.log('Conversation creation aborted');
-        return;
-      }
-      
-      console.error("Error creating conversation:", error);
+      console.error("Error in navigation:", error);
       setIsTransitioning(false);
-      setIsCreatingConversation(false);
-      
-      // CRITICAL FIX: Always use temp- prefix in fallback
-      const tempId = `temp-${Date.now()}`;
-      const searchParams = new URLSearchParams({
-        message: textareaValue.trim(),
-        transition: "true",
-      });
-
-      if (selectedTool?.persona) {
-        searchParams.set("persona", selectedTool.persona);
-      }
-
-      console.log('Falling back to temporary ID:', tempId);
-      router.push(`/c/${tempId}?${searchParams.toString()}`);
-    } finally {
-      // States will be reset by navigation or error handling above
     }
-
-    // Cleanup function for component unmount (this return will never execute due to navigation)
-    return () => {
-      abortController.abort();
-    };
   };
 
   useEffect(() => {
@@ -327,6 +220,27 @@ export default function ReworkPage() {
 
     return () => subscription.unsubscribe();
   }, []);
+
+  // Load user preferences including model selection
+  useEffect(() => {
+    const loadUserPreferences = async () => {
+      if (!isAuthenticated || !user) return;
+
+      try {
+        const response = await fetch('/api/user/preferences');
+        if (response.ok) {
+          const { preferences } = await response.json();
+          if (preferences?.preferred_model) {
+            setSelectedModel(preferences.preferred_model);
+          }
+        }
+      } catch (error) {
+        console.error('Failed to load user preferences:', error);
+      }
+    };
+
+    loadUserPreferences();
+  }, [isAuthenticated, user]);
 
   const LimitModal = () => (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
@@ -514,6 +428,7 @@ export default function ReworkPage() {
                       : "bg-white border-gray-200"
                   }`}
                 >
+
                   {uploadedFiles.length > 0 && (
                     <div className="mb-4 flex flex-wrap gap-2">
                       {uploadedFiles.map((file, index) => (
