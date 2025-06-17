@@ -1,11 +1,12 @@
 import { defaultPrompt } from "@/prompt/default/default-prompt"
-import { mrBeastPrompt } from "@/prompt/persona/mrbeast-prompt"
 import { taylorSwiftPrompt } from "@/prompt/persona/taylor-swift-prompt"
 import { sundarPichaiPrompt } from "@/prompt/persona/sundar-pichai-prompt"
 import { createGoogleGenerativeAI } from "@ai-sdk/google"
 import { streamText, generateText, tool, experimental_generateImage as generateImage } from "ai"
 import { z } from "zod"
 import { createServerSupabaseClient, requireAuth, uploadImageToStorage } from '@/lib/supabase-server';
+import { theoPrompt } from "@/prompt/persona/theo-prompt"
+import { billGatesPrompt } from "@/prompt/persona/billgates-prompt"
 
 export const maxDuration = 30
 
@@ -20,6 +21,9 @@ function getGoogleAI(apiKey?: string) {
   return googleAIClient;
 }
 
+// FIXED: Add request deduplication to prevent multiple simultaneous conversation creation
+const pendingConversationRequests = new Map<string, Promise<string>>();
+
 // Cache user preferences globally with TTL
 const userPreferencesCache = new Map<string, { data: any; timestamp: number }>();
 const PREFERENCES_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
@@ -33,20 +37,38 @@ async function getUserPreferences(userId: string, supabase: any) {
     return cached.data;
   }
 
-  const { data: userPreferences } = await supabase
-    .from('user_preferences')
-    .select('*')
-    .eq('user_id', userId)
-    .single();
+  // Fetch both preferences and memories
+  const [preferencesResult, memoriesResult] = await Promise.all([
+    supabase
+      .from('user_preferences')
+      .select('*')
+      .eq('user_id', userId)
+      .single(),
+    supabase
+      .from('user_memory')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('is_active', true)
+      .order('updated_at', { ascending: false })
+  ]);
 
-  if (userPreferences) {
+  const userPreferences = preferencesResult.data;
+  const userMemories = memoriesResult.data || [];
+
+  // Combine preferences with memories
+  const enrichedPreferences = {
+    ...userPreferences,
+    memories: userMemories
+  };
+
+  if (enrichedPreferences) {
     userPreferencesCache.set(cacheKey, { 
-      data: userPreferences, 
+      data: enrichedPreferences, 
       timestamp: Date.now() 
     });
   }
 
-  return userPreferences;
+  return enrichedPreferences;
 }
 
 // Optimized system prompt generation with caching
@@ -64,8 +86,8 @@ function getSystemPrompt(persona: string | null, userPreferences: any): string {
   // Select system prompt based on persona
   if (persona) {
     switch (persona.toLowerCase()) {
-      case 'mrbeast':
-        systemPrompt = mrBeastPrompt();
+      case 'theo':
+        systemPrompt = theoPrompt();
         break;
       case 'taylor swift':
         systemPrompt = taylorSwiftPrompt();
@@ -73,22 +95,39 @@ function getSystemPrompt(persona: string | null, userPreferences: any): string {
       case 'sundar pichai':
         systemPrompt = sundarPichaiPrompt();
         break;
+      case 'bill gates':
+        systemPrompt = billGatesPrompt();
+        break;
       default:
         systemPrompt = defaultPrompt();
     }
   }
 
-  // Add user preferences to system prompt for personalization
   if (userPreferences) {
-    const personalizationContext = `
+    let personalizationContext = `
 
 USER PERSONALIZATION CONTEXT:
 ${userPreferences.display_name ? `- User's preferred name: ${userPreferences.display_name}` : ''}
 ${userPreferences.occupation ? `- User's occupation: ${userPreferences.occupation}` : ''}
 ${userPreferences.traits && userPreferences.traits.length > 0 ? `- User's traits/interests: ${userPreferences.traits.join(', ')}` : ''}
-${userPreferences.additional_info ? `- Additional user context: ${userPreferences.additional_info}` : ''}
+${userPreferences.additional_info ? `- Additional user context: ${userPreferences.additional_info}` : ''}`;
 
-Please use this information to personalize your responses appropriately${persona ? ' while maintaining your persona' : ''}. Address the user by their preferred name when appropriate, and tailor your responses to their occupation, interests, and context when relevant.`;
+    // Add user memories to the context
+    if (userPreferences.memories && userPreferences.memories.length > 0) {
+      personalizationContext += `
+
+USER MEMORIES (Things the user wants you to remember):`;
+      
+      userPreferences.memories.forEach((memory: any) => {
+        const memoryContent = memory.memory_value?.content || memory.memory_value;
+        personalizationContext += `
+- ${memory.memory_key}: ${memoryContent} (${memory.memory_type || 'custom'})`;
+      });
+    }
+
+    personalizationContext += `
+
+Please use this information to personalize your responses appropriately${persona ? ' while maintaining your persona' : ''}. Address the user by their preferred name when appropriate, and tailor your responses to their occupation, interests, and context when relevant. Remember and reference the user's saved memories when they are relevant to the conversation.`;
 
     systemPrompt += personalizationContext;
   }
@@ -99,32 +138,70 @@ Please use this information to personalize your responses appropriately${persona
   return systemPrompt;
 }
 
+async function uploadFileToStorage(fileData: string, mimeType: string, filename: string, userId: string, supabase: any): Promise<{ publicUrl: string | null; error: string | null; documentId: string | null }> {
+    try {
+        // Convert base64 to buffer
+        const base64Data = fileData.split(',')[1];
+        const buffer = Buffer.from(base64Data, 'base64');
+        
+        // Generate unique filename
+        const fileExtension = filename.split('.').pop() || 'bin';
+        const uniqueFilename = `${userId}/${Date.now()}-${Math.random().toString(36).substring(2, 15)}.${fileExtension}`;
+        
+        // Upload to Supabase Storage
+        const { data: uploadData, error: uploadError } = await supabase.storage
+            .from('user-documents')
+            .upload(uniqueFilename, buffer, {
+                contentType: mimeType,
+                cacheControl: '3600'
+            });
+
+        if (uploadError) {
+            return { publicUrl: null, error: uploadError.message, documentId: null };
+        }
+
+        // Get public URL
+        const { data: { publicUrl } } = supabase.storage
+            .from('user-documents')
+            .getPublicUrl(uniqueFilename);
+
+        return { publicUrl, error: null, documentId: uniqueFilename };
+    } catch (error) {
+        return { 
+            publicUrl: null, 
+            error: error instanceof Error ? error.message : 'Unknown upload error', 
+            documentId: null 
+        };
+    }
+}
+
 export async function POST(req: Request) {
     try {
-        const { messages, persona, conversationId } = await req.json()
+        const { messages, persona, conversationId, modelId, files, webSearchEnabled = false } = await req.json()
         const apiKey = req.headers.get("x-api-key")
 
         // Require authentication for API access
         const user = await requireAuth();
+        const userId = user.id;
 
-        // Optimize Supabase client creation
+        // Use centralized Supabase client creation
         const supabase = await createServerSupabaseClient();
         
         // Fetch user preferences with caching
-        const userPreferences = await getUserPreferences(user.id, supabase);
+        const userPreferences = await getUserPreferences(userId, supabase);
 
-        // Check if conversationId is provided and validate format
-        let validConversationId = null;
-        if (conversationId && conversationId.trim()) {
-            // More lenient UUID validation - check for basic UUID structure
+        // Initialize conversationId tracking
+        let validConversationId: string | null = null;
+        
+        // Check if conversationId is provided and valid
+        if (conversationId && typeof conversationId === 'string' && conversationId.trim()) {
             const trimmedId = conversationId.trim();
             
             // Skip temp IDs
             if (trimmedId.startsWith('temp-')) {
-                console.log('Skipping temp conversation ID:', trimmedId);
-                validConversationId = null;
+                // Skip temp IDs
             } else {
-                // Validate UUID format with more flexible regex
+                // Validate UUID format
                 const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
                 if (uuidRegex.test(trimmedId)) {
                     // Verify the conversation exists and belongs to the user
@@ -133,82 +210,401 @@ export async function POST(req: Request) {
                             .from('conversations')
                             .select('id')
                             .eq('id', trimmedId)
-                            .eq('user_id', user.id)
+                            .eq('user_id', userId)
                             .single();
                         
                         if (!error && conversation) {
                             validConversationId = trimmedId;
-                            console.log('Using valid conversation ID:', validConversationId);
-                        } else {
-                            console.log('Conversation not found or access denied:', trimmedId);
-                            validConversationId = null;
                         }
                     } catch (dbError) {
-                        console.error('Database error checking conversation:', dbError);
-                        validConversationId = null;
+                        // Handle silently
                     }
-                } else {
-                    console.log('Invalid UUID format:', trimmedId);
-                    validConversationId = null;
                 }
             }
         }
+        
+        // If no valid conversation ID exists, create a new one ONLY ONCE per chat session
+        if (!validConversationId) {
+            try {
+                // Get first user message for title
+                const firstUserMsg = messages.find((m: any) => m.role === 'user');
+                const title = firstUserMsg 
+                    ? firstUserMsg.content.substring(0, 100) 
+                    : 'New Chat';
+                
+                // FIXED: Use request deduplication to prevent multiple simultaneous conversation creation
+                const deduplicationKey = `${userId}-${title}`;
+                
+                // Check if there's already a pending request for this exact conversation
+                if (pendingConversationRequests.has(deduplicationKey)) {
+                    validConversationId = await pendingConversationRequests.get(deduplicationKey)!;
+                } else {
+                    // Create a new promise for this conversation creation
+                    const createConversationPromise = (async (): Promise<string> => {
+                        // Check if conversation already exists with this exact title recently
+                        const recentTime = new Date(Date.now() - 10000).toISOString(); // 10 seconds ago
+                        const { data: existingConversations, error: checkError } = await supabase
+                            .from('conversations')
+                            .select('id')
+                            .eq('user_id', userId)
+                            .eq('title', title)
+                            .gte('created_at', recentTime);
 
-        // Get the latest user message to save to database (only if we have valid conversation ID)
-        const latestUserMessage = messages[messages.length - 1];
-        if (latestUserMessage && latestUserMessage.role === 'user' && validConversationId) {
-          // Save user message asynchronously to not block AI response
-          console.log('Saving user message to conversation:', validConversationId);
-          saveMessageToDatabase(validConversationId, 'user', latestUserMessage.content).catch(error => {
-            console.error('Failed to save user message:', error);
-          });
-        } else if (latestUserMessage && latestUserMessage.role === 'user') {
-          console.log('No valid conversation ID - user message will not be saved to database');
+                        if (!checkError && existingConversations && existingConversations.length > 0) {
+                            // Use existing conversation instead of creating a new one
+                            const existingId = existingConversations[0].id;
+                            return existingId;
+                        } else {
+                            // Create new conversation only if no recent duplicate exists
+                            const { data: newConversation, error } = await supabase
+                                .from('conversations')
+                                .insert({
+                                    user_id: userId,
+                                    title: title
+                                })
+                                .select()
+                                .single();
+                            
+                            if (error) {
+                                throw new Error('Failed to create conversation');
+                            } else {
+                                return newConversation.id;
+                            }
+                        }
+                    })();
+                    
+                    // Store the promise in the map
+                    pendingConversationRequests.set(deduplicationKey, createConversationPromise);
+                    
+                    try {
+                        validConversationId = await createConversationPromise;
+                    } finally {
+                        // Clean up the pending request after 30 seconds
+                        setTimeout(() => {
+                            pendingConversationRequests.delete(deduplicationKey);
+                        }, 30000);
+                    }
+                }
+            } catch (createError) {
+                // Continue without saving to DB
+            }
         }
 
-        // Get optimized AI client
-        const google = getGoogleAI(apiKey || undefined);
-        const model = google("gemini-2.0-flash");
+        // Process files if they exist
+        let processedMessages = messages;
+        let uploadedDocuments: any[] = [];
+        
+        if (files && files.length > 0) {
+            // Find the last user message and add files to it
+            const lastUserMessageIndex = messages.length - 1;
+            const lastMessage = messages[lastUserMessageIndex];
+            
+            if (lastMessage && lastMessage.role === 'user') {
+                // Convert the content to multimodal format
+                const contentParts = [];
+                
+                // Add the text content
+                if (typeof lastMessage.content === 'string') {
+                    contentParts.push({
+                        type: 'text',
+                        text: lastMessage.content
+                    });
+                } else if (Array.isArray(lastMessage.content)) {
+                    contentParts.push(...lastMessage.content);
+                }
+                
+                // Process each file
+                for (const file of files) {
+                    try {
+                        // Convert base64 data URL to buffer
+                        const base64Data = file.data.split(',')[1]; // Remove data URL prefix
+                        const buffer = Buffer.from(base64Data, 'base64');
+                        
+                        // Determine content type based on MIME type
+                        if (file.type.startsWith('image/')) {
+                            contentParts.push({
+                                type: 'image',
+                                image: buffer,
+                            });
+                        } else if (file.type === 'application/pdf') {
+                            // Upload PDF and use public URL for AI to access
+                            const { publicUrl, error: uploadError, documentId } = await uploadFileToStorage(
+                                file.data, 
+                                file.type, 
+                                file.name, 
+                                userId, 
+                                supabase
+                            );
+                            
+                            if (publicUrl && !uploadError) {
+                                // For PDFs, we need to use the file approach with public URL
+                                const response = await fetch(publicUrl);
+                                const arrayBuffer = await response.arrayBuffer();
+                                const pdfBuffer = Buffer.from(arrayBuffer);
+                                
+                                contentParts.push({
+                                    type: 'file',
+                                    mimeType: file.type,
+                                    data: pdfBuffer,
+                                    filename: file.name,
+                                });
+                                
+                                uploadedDocuments.push({
+                                    filename: file.name,
+                                    mimeType: file.type,
+                                    size: file.size,
+                                    documentUrl: publicUrl,
+                                    documentId: documentId
+                                });
+                            } else {
+                                contentParts.push({
+                                    type: 'text',
+                                    text: `[Error uploading file: ${file.name}]`
+                                });
+                            }
+                        } else if (file.type.startsWith('text/') || 
+                                   file.type === 'application/json' ||
+                                   file.type.includes('csv') ||
+                                   file.type.includes('xml') ||
+                                   file.name.endsWith('.txt') ||
+                                   file.name.endsWith('.md') ||
+                                   file.name.endsWith('.json') ||
+                                   file.name.endsWith('.csv') ||
+                                   file.name.endsWith('.xml')) {
+                            // For text files, read the content and add as text
+                            const textContent = buffer.toString('utf-8');
+                            contentParts.push({
+                                type: 'text',
+                                text: `File: ${file.name}\n\nContent:\n${textContent}`
+                            });
+                            
+                            // Also upload text files to storage for database record
+                            const { publicUrl, documentId } = await uploadFileToStorage(
+                                file.data, 
+                                file.type, 
+                                file.name, 
+                                userId, 
+                                supabase
+                            );
+                            
+                            if (publicUrl) {
+                                uploadedDocuments.push({
+                                    filename: file.name,
+                                    mimeType: file.type,
+                                    size: file.size,
+                                    documentUrl: publicUrl,
+                                    documentId: documentId
+                                });
+                            }
+                            
+                            contentParts.push({
+                                type: 'text',
+                                text: `File: ${file.name}\n\nContent:\n${textContent}`
+                            });
+                        } else {
+                            // For other supported file types, upload and try to send to AI
+                            const { publicUrl, error: uploadError, documentId } = await uploadFileToStorage(
+                                file.data, 
+                                file.type, 
+                                file.name, 
+                                userId, 
+                                supabase
+                            );
+                            
+                            if (publicUrl && !uploadError) {
+                                contentParts.push({
+                                    type: 'file',
+                                    mimeType: file.type,
+                                    data: buffer,
+                                    filename: file.name,
+                                });
+                                
+                                uploadedDocuments.push({
+                                    filename: file.name,
+                                    mimeType: file.type,
+                                    size: file.size,
+                                    documentUrl: publicUrl,
+                                    documentId: documentId
+                                });
+                            } else {
+                                contentParts.push({
+                                    type: 'text',
+                                    text: `[Error uploading file: ${file.name}]`
+                                });
+                            }
+                        }
+                    } catch (fileError) {
+                        contentParts.push({
+                            type: 'text',
+                            text: `[Error processing file: ${file.name}]`
+                        });
+                    }
+                }
+                
+                // Update the message with multimodal content
+                processedMessages = [...messages];
+                processedMessages[lastUserMessageIndex] = {
+                    ...lastMessage,
+                    content: contentParts
+                };
+            }
+        }
 
-        // Get cached system prompt
+        // Get the latest user message to save to database
+        const latestUserMessage = processedMessages[processedMessages.length - 1];
+        let savedMessageId: string | null = null;
+        
+        if (latestUserMessage && latestUserMessage.role === 'user' && validConversationId) {
+            try {
+                let contentToSave = '';
+                let messageMetadata: any = null;
+                
+                if (Array.isArray(latestUserMessage.content)) {
+                    // Extract text parts for the main content
+                    const textParts = latestUserMessage.content
+                        .filter((part: any) => part.type === 'text')
+                        .map((part: any) => part.text);
+                    contentToSave = textParts.join('\n');
+                    
+                    // Store file information in metadata
+                    const fileParts = latestUserMessage.content.filter((part: any) => 
+                        part.type === 'image' || part.type === 'file'
+                    );
+                    
+                    if (fileParts.length > 0) {
+                        messageMetadata = {
+                            attachments: fileParts.map((part: any) => ({
+                                type: part.type,
+                                mimeType: part.mimeType || (part.type === 'image' ? 'image/*' : 'application/octet-stream'),
+                                filename: part.filename || 'attachment',
+                                size: part.data ? Buffer.byteLength(part.data) : 0
+                            }))
+                        };
+                    }
+                } else {
+                    contentToSave = latestUserMessage.content;
+                }
+                
+                const { data: savedMessage, error } = await supabase
+                    .from('messages')
+                    .insert({
+                        conversation_id: validConversationId,
+                        role: 'user',
+                        content: contentToSave,
+                        metadata: messageMetadata,
+                        status: 'completed'
+                    })
+                    .select()
+                    .single();
+                
+                if (!error && savedMessage) {
+                    savedMessageId = savedMessage.id;
+                    
+                    // Save uploaded documents to message_documents table
+                    if (uploadedDocuments.length > 0) {
+                        const documentInserts = uploadedDocuments.map(doc => ({
+                            message_id: savedMessage.id,
+                            document_url: doc.documentUrl,
+                            name: doc.filename,
+                            file_type: doc.mimeType,
+                            size: doc.size
+                        }));
+                        
+                        await supabase
+                            .from('message_documents')
+                            .insert(documentInserts);
+                    }
+                }
+            } catch (saveError) {
+                // Handle silently
+            }
+        } else if (latestUserMessage && latestUserMessage.role === 'user') {
+            // Do not save empty or invalid messages
+        }
+
+        const google = getGoogleAI(apiKey || undefined);
+        
+        // Handle thinking models - use the correct model ID
+        const isThinkingModel = modelId === "gemini-2.5-flash-preview-05-20";
+        let actualModelId = modelId || "gemini-2.0-flash";
+        
+        // For thinking model, use the exact model ID
+        if (isThinkingModel) {
+            actualModelId = "gemini-2.5-flash-preview-05-20";
+        }
+        
+        // FIXED: Enable search grounding conditionally when webSearchEnabled is true and not a thinking model
+        const model = webSearchEnabled && !isThinkingModel 
+            ? google(actualModelId, { searchGrounding: true })
+            : google(actualModelId);
+
         const systemPrompt = getSystemPrompt(persona, userPreferences);
+
+        const startTime = Date.now();
 
         const result = streamText({
             model,
-            messages,
+            messages: processedMessages, // Use processed messages with file attachments
             tools: {
-                generateProductCard: tool({
-                    description: "Generate product card(s) with details about product(s). Can generate multiple products if count > 1.",
+                saveMemory: tool({
+                    description: "Save information about the user to memory for future conversations. Use this when the user shares personal preferences, interests, or information they want you to remember. Save information in a natural, conversational way that preserves the original context and meaning.",
                     parameters: z.object({
-                        count: z.number().min(1).max(10).optional().describe("Number of products to generate").default(1),
-                        id: z.string().describe("Product ID (will be auto-generated for multiple products)"),
-                        title: z.string().describe("Product title"),
-                        price: z.number().describe("Product price"),
-                        originalPrice: z.number().optional().describe("Original price before discount"),
-                        currency: z.string().optional().describe("Currency symbol").default("$"),
-                        rating: z.number().min(0).max(5).describe("Product rating out of 5"),
-                        reviewCount: z.number().optional().describe("Number of reviews"),
-                        imageUrl: z.string().describe("Product image URL"),
-                        imageAlt: z.string().optional().describe("Alt text for product image"),
-                        platform: z.enum(["amazon", "flipkart", "ebay", "other"]).describe("Shopping platform"),
-                        discount: z.number().optional().describe("Discount percentage"),
+                        key: z.string().describe("A descriptive key for the memory (e.g., 'favorite_music', 'food_preferences', 'hobbies')"),
+                        value: z.string().describe("The information to remember - save it naturally as you would want to recall it later"),
+                        type: z.enum(["preference", "fact", "interest", "goal", "custom"]).optional().describe("Category of memory").default("custom"),
                     }),
                     execute: async (params) => {
-                        if (params.count === 1) {
-                            return params
-                        }
+                        try {
+                            const user = await requireAuth();
+                            const supabase = await createServerSupabaseClient();
+                            
+                            // Save the memory value as provided by the AI, without forced formatting
+                            // The AI can decide how to best phrase and contextualize the memory
+                            const formattedValue = params.value;
+                            
+                            // Upsert the memory (insert or update if exists)
+                            const { data: memory, error } = await supabase
+                                .from('user_memory')
+                                .upsert({
+                                    user_id: user.id,
+                                    memory_key: params.key,
+                                    memory_value: { content: formattedValue },
+                                    memory_type: params.type,
+                                    is_active: true,
+                                }, {
+                                    onConflict: 'user_id,memory_key'
+                                })
+                                .select()
+                                .single();
 
-                        // Generate array of products
-                        const products: typeof params[] = []
-                        for (let i = 0; i < params.count; i++) {
-                            products.push({
-                                ...params,
-                                id: `${params.id}-${i + 1}`,
-                                title: `${params.title} ${i + 1}`,
-                            })
-                        }
+                            if (error) {
+                                return {
+                                    success: false,
+                                    error: "Failed to save memory",
+                                    key: params.key,
+                                    value: formattedValue,
+                                };
+                            }
 
-                        return products
+                            // Clear user preferences cache to include new memory
+                            const cacheKey = `prefs_${user.id}`;
+                            userPreferencesCache.delete(cacheKey);
+
+                            return {
+                                success: true,
+                                key: params.key,
+                                value: formattedValue,
+                                type: params.type,
+                                message: "I'll remember that for our future conversations!",
+                            };
+                        } catch (error) {
+                            return {
+                                success: false,
+                                error: error instanceof Error ? error.message : "Failed to save memory",
+                                key: params.key,
+                                value: params.value,
+                            };
+                        }
                     },
                 }),
                 generateWeatherCard: tool({
@@ -302,7 +698,6 @@ export async function POST(req: Request) {
                                 observationTime: currentWeather.LocalObservationDateTime,
                             }
                         } catch (error) {
-                            console.error('Weather API error:', error);
                             // Return fallback data with error indication
                             return {
                                 location: params.location,
@@ -623,36 +1018,139 @@ export async function POST(req: Request) {
                 })
             },
             system: systemPrompt,
+            experimental_telemetry: {
+                isEnabled: true,
+                recordInputs: false,
+                recordOutputs: false,
+            },
+            // FIXED: Proper thinking model configuration
+            ...(isThinkingModel && {
+                experimental_providerOptions: {
+                    google: {
+                        thinkingModel: true,
+                        enableThinking: true,
+                    },
+                },
+            }),
             onFinish: async (result) => {
-                // Save assistant response with tool results (only if we have valid conversation ID)
+                // Calculate response time
+                const responseTime = Date.now() - startTime;
+
+                // Save assistant response with tool results, thinking, and metrics
                 if (validConversationId) {
-                    console.log('Saving assistant response to conversation:', validConversationId);
-                    // Extract tool invocations and their results
-                    const toolResults = result.toolResults?.map(toolResult => ({
-                        toolCallId: `tool-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-                        toolName: toolResult.toolName,
-                        args: toolResult.args,
-                        result: toolResult.result,
-                        state: 'result'
-                    })) || [];
-                    
-                    // Save message asynchronously
-                    saveMessageToDatabase(validConversationId, 'assistant', result.text, toolResults).catch(error => {
-                        console.error('Failed to save assistant message:', error);
-                    });
+                    try {
+                        // Extract tool invocations and their results
+                        const toolResults = result.toolResults?.map(toolResult => ({
+                            toolCallId: `tool-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                            toolName: toolResult.toolName,
+                            args: toolResult.args,
+                            result: toolResult.result,
+                            state: 'result'
+                        })) || [];
+                        
+                        // FIXED: Enhanced thinking content extraction for Gemini thinking models
+                        let thinkingContent = null;
+                        
+                        if (isThinkingModel) {
+                            // For Gemini thinking models, check the experimental_thinking property first
+                            if ((result as any).experimental_thinking) {
+                                thinkingContent = (result as any).experimental_thinking;
+                            }
+                            // Also check other possible properties
+                            else if ((result as any).steps) {
+                                const steps = (result as any).steps;
+                                
+                                if (typeof steps === 'string') {
+                                    thinkingContent = steps;
+                                } else if (typeof steps === 'object' && steps !== null) {
+                                    // Extract text from steps object
+                                    if (steps.text) {
+                                        thinkingContent = steps.text;
+                                    } else if (steps.content) {
+                                        thinkingContent = steps.content;
+                                    } else if (steps.stepType && steps.text) {
+                                        thinkingContent = steps.text;
+                                    } else {
+                                        // Convert object to readable format
+                                        thinkingContent = JSON.stringify(steps, null, 2);
+                                    }
+                                }
+                            }
+                            // Check reasoning property
+                            else if ((result as any).reasoning) {
+                                thinkingContent = (result as any).reasoning;
+                            }
+                            
+                            if (thinkingContent && typeof thinkingContent === 'string') {
+                            }
+                        }
+                        
+                        // Prepare metadata for tool results and thinking
+                        let metadata = null;
+                        if (toolResults.length > 0 || thinkingContent) {
+                            metadata = {
+                                toolResults: toolResults,
+                                hasTools: toolResults.length > 0,
+                                toolCount: toolResults.length,
+                                thinking: thinkingContent,
+                                hasThinking: !!thinkingContent,
+                                // Add raw thinking data for debugging
+                                rawThinking: isThinkingModel ? {
+                                    experimental_thinking: (result as any).experimental_thinking,
+                                    steps: (result as any).steps,
+                                    reasoning: (result as any).reasoning
+                                } : null
+                            };
+                        }
+                        
+                        // Save assistant message with metrics and thinking
+                        const { data: assistantMessage, error } = await supabase
+                            .from('messages')
+                            .insert({
+                                conversation_id: validConversationId,
+                                role: 'assistant',
+                                content: result.text,
+                                model_used: modelId || "gemini-2.0-flash",
+                                token_usage: result.usage?.totalTokens || null,
+                                response_time_ms: responseTime,
+                                metadata: metadata,
+                                status: 'completed'
+                            })
+                            .select()
+                            .single();
+                        
+                        if (error) {
+                            // Handle silently
+                        } else {
+                            if (thinkingContent) {
+                            }
+                            
+                            // Save any images from tool results
+                            if (toolResults.length > 0) {
+                                await saveToolResultImages(assistantMessage.id, toolResults, supabase);
+                            }
+                        }
+                    } catch (saveError) {
+                        // Handle silently
+                    }
                 } else {
-                    console.log('No valid conversation ID - assistant response will not be saved to database');
+                    // No valid conversation ID - assistant response will not be saved to database
                 }
             }
-        })
-
-        return result.toDataStreamResponse({
-            headers: {
-                'Cache-Control': 'no-cache, no-store, must-revalidate',
-                'Pragma': 'no-cache',
-                'Expires': '0',
-            }
         });
+
+        // CRITICAL: Return the conversation ID in the response headers so the frontend can use it
+        const headers: Record<string, string> = {
+            'Cache-Control': 'no-cache, no-store, must-revalidate',
+            'Pragma': 'no-cache',
+            'Expires': '0',
+        };
+
+        if (validConversationId) {
+            headers['X-Conversation-ID'] = validConversationId;
+        }
+
+        return result.toDataStreamResponse({ headers });
     } catch (error) {
         if (error instanceof Error && error.message === 'Authentication required') {
             return new Response(
@@ -661,7 +1159,6 @@ export async function POST(req: Request) {
             );
         }
         
-        console.error('Chat API error:', error);
         return new Response(
             JSON.stringify({
                 error: "Internal server error",
@@ -675,97 +1172,77 @@ export async function POST(req: Request) {
     }
 }
 
-// Optimized message saving function with error handling
-async function saveMessageToDatabase(conversationId: string, role: 'user' | 'assistant', content: string, toolResults?: any[]) {
-  try {
-    const supabase = await createServerSupabaseClient();
-    
-    // Prepare metadata for tool results
-    let metadata = null;
-    if (toolResults && toolResults.length > 0) {
-      metadata = {
-        toolResults: toolResults,
-        hasTools: true,
-        toolCount: toolResults.length
-      };
-    }
-    
-    const { data: message, error } = await supabase
-      .from('messages')
-      .insert({
-        conversation_id: conversationId,
-        role: role,
-        content: content,
-        metadata: metadata,
-        status: 'completed'
-      })
-      .select()
-      .single();
-
-    if (error) {
-      console.error('Message save error:', error);
-      return null;
-    }
-
-    // Save any images from tool results to message_images table (async)
-    if (message && toolResults) {
-      saveToolResultImages(message.id, toolResults).catch(console.error);
-    }
-
-    return message;
-  } catch (error) {
-    console.error('Database save error:', error);
-    return null;
-  }
-}
-
-// Separate function for saving tool result images (non-blocking)
-async function saveToolResultImages(messageId: string, toolResults: any[]) {
-  try {
-    const supabase = await createServerSupabaseClient();
-    const imagePromises = [];
-    const processedImageUrls = new Set(); // Track processed URLs to avoid duplicates
-    
-    for (const tool of toolResults) {
-      // Handle generateImage tool specifically
-      if (tool.result && tool.toolName === 'generateImage' && tool.result.imageUrl) {
-        if (!processedImageUrls.has(tool.result.imageUrl)) {
-          processedImageUrls.add(tool.result.imageUrl);
-          imagePromises.push(
-            supabase.from('message_images').insert({
-              message_id: messageId,
-              image_url: tool.result.imageUrl,
-              alt_text: tool.result.prompt || 'Generated image'
-            })
-          );
-        }
-      }
-      
-      // Handle product cards specifically
-      else if (tool.toolName === 'generateProductCard' && tool.result) {
-        const products = Array.isArray(tool.result) ? tool.result : [tool.result];
+// Function for saving tool result images
+async function saveToolResultImages(messageId: string, toolResults: any[], supabase: any) {
+    try {
+        const imagePromises = [];
+        const processedImageUrls = new Set(); // Track processed URLs to avoid duplicates
         
-        for (const product of products) {
-          if (product.imageUrl && !processedImageUrls.has(product.imageUrl)) {
-            processedImageUrls.add(product.imageUrl);
-            imagePromises.push(
-              supabase.from('message_images').insert({
-                message_id: messageId,
-                image_url: product.imageUrl,
-                alt_text: product.imageAlt || product.title || 'Product image'
-              })
-            );
-          }
+        for (const tool of toolResults) {
+            // Handle generateImage tool specifically
+            if (tool.result && tool.toolName === 'generateImage' && tool.result.imageUrl) {
+                if (!processedImageUrls.has(tool.result.imageUrl)) {
+                    processedImageUrls.add(tool.result.imageUrl);
+                    imagePromises.push(
+                        supabase.from('message_images').insert({
+                            message_id: messageId,
+                            image_url: tool.result.imageUrl,
+                            alt_text: tool.result.prompt || 'Generated image'
+                        })
+                    );
+                }
+            }
+            
+            // Handle product cards specifically
+            else if (tool.toolName === 'generateProductCard' && tool.result) {
+                const products = Array.isArray(tool.result) ? tool.result : [tool.result];
+                
+                for (const product of products) {
+                    if (product.imageUrl && !processedImageUrls.has(product.imageUrl)) {
+                        processedImageUrls.add(product.imageUrl);
+                        imagePromises.push(
+                            supabase.from('message_images').insert({
+                                message_id: messageId,
+                                image_url: product.imageUrl,
+                                alt_text: product.imageAlt || product.title || 'Product image'
+                            })
+                        );
+                    }
+                }
+            }
+            
+            // Handle media recommendations with images
+            else if (tool.toolName === 'generateMediaRecommendations' && tool.result) {
+                const recommendations = Array.isArray(tool.result) ? tool.result : [tool.result];
+                
+                for (const recommendation of recommendations) {
+                    if (recommendation.imageUrl && !processedImageUrls.has(recommendation.imageUrl)) {
+                        processedImageUrls.add(recommendation.imageUrl);
+                        imagePromises.push(
+                            supabase.from('message_images').insert({
+                                message_id: messageId,
+                                image_url: recommendation.imageUrl,
+                                alt_text: recommendation.title || 'Media recommendation'
+                            })
+                        );
+                    }
+                }
+            }
         }
-      }
+        
+        // Execute all image insertions in parallel
+        if (imagePromises.length > 0) {
+            const results = await Promise.allSettled(imagePromises);
+            
+            // Log any errors
+            results.forEach((result, index) => {
+                if (result.status === 'rejected') {
+                    console.error(`Failed to save image ${index}:`, result.reason);
+                }
+            });
+            
+        }
+    } catch (error) {
+        // Handle silently
     }
-    
-    // Execute all image insertions in parallel
-    if (imagePromises.length > 0) {
-      await Promise.allSettled(imagePromises);
-    }
-  } catch (error) {
-    console.error('Tool result images save error:', error);
-    // Silent fail for image saving
-  }
 }
