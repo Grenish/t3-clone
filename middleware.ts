@@ -29,13 +29,32 @@ export async function middleware(req: NextRequest) {
     
     // Handle API route authentication
     if (req.nextUrl.pathname.startsWith('/api/')) {
-        // For API routes that require authentication
-        const protectedApiRoutes = ['/api/conversations', '/api/chat']
+        // Expanded list of protected API routes
+        const protectedApiRoutes = [
+            '/api/conversations', 
+            '/api/chat',
+            '/api/user/preferences',
+            '/api/user/history',
+            '/api/user/account',
+            '/api/user/files'
+        ]
+        
         const isProtectedRoute = protectedApiRoutes.some(route => 
             req.nextUrl.pathname.startsWith(route)
         )
         
-        if (isProtectedRoute && user) {
+        if (isProtectedRoute) {
+            if (!user || error) {
+                // Return 401 for unauthenticated requests to protected routes
+                return new NextResponse(
+                    JSON.stringify({ error: 'Authentication required' }),
+                    { 
+                        status: 401,
+                        headers: { 'Content-Type': 'application/json' }
+                    }
+                )
+            }
+            
             // Add user ID to headers for API routes to use
             const requestHeaders = new Headers(req.headers)
             requestHeaders.set('x-user-id', user.id)
