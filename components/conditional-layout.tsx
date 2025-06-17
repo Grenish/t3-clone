@@ -65,9 +65,6 @@ export function ConditionalLayout({ children }: ConditionalLayoutProps) {
         <AppSidebar />
         <main className="flex-1 flex flex-col min-h-screen">
           <SidebarTrigger className="absolute z-50 top-5 ml-5 cursor-e-resize" size={"icon"}/>
-          <div className="fixed top-4 right-4 z-50">
-            <ThemeSwitch />
-          </div>
           {children}
         </main>
       </SidebarProvider>
