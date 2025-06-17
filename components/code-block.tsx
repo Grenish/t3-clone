@@ -27,17 +27,17 @@ export function CodeBlock({ language, code, filename }: CodeBlockProps) {
   };
 
   return (
-    <div className="relative group">
+    <div className="relative group w-full max-w-full overflow-hidden">
       <div
-        className={`px-4 py-2 text-sm font-mono rounded-t-lg border-b flex justify-between items-center ${
+        className={`px-3 sm:px-4 py-2 text-xs sm:text-sm font-mono rounded-t-lg border-b flex justify-between items-center ${
           isDarkMode
             ? "bg-gray-800 text-gray-300 border-gray-700"
             : "bg-gray-100 text-gray-700 border-gray-300"
         }`}
       >
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
           <span
-            className={`uppercase tracking-wide text-xs font-semibold ${
+            className={`uppercase tracking-wide text-xs font-semibold flex-shrink-0 ${
               isDarkMode ? "text-gray-400" : "text-gray-500"
             }`}
           >
@@ -46,44 +46,50 @@ export function CodeBlock({ language, code, filename }: CodeBlockProps) {
           {filename && (
             <>
               <span
-                className={
+                className={`flex-shrink-0 ${
                   isDarkMode ? "text-gray-500" : "text-gray-400"
-                }
+                }`}
               >
                 •
               </span>
-              <span>{filename}</span>
+              <span className="truncate text-xs sm:text-sm">{filename}</span>
             </>
           )}
         </div>
-      </div>
-      <div className="relative">
         <button
           onClick={copyToClipboard}
-          className={`absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity p-2 rounded z-10 ${
+          className={`flex-shrink-0 p-1.5 sm:p-2 rounded transition-colors ${
             isDarkMode
               ? "bg-gray-700 hover:bg-gray-600 text-white"
               : "bg-white hover:bg-gray-50 text-gray-700 border border-gray-300"
           }`}
         >
           {copied ? (
-            <Check className="w-4 h-4" />
+            <Check className="w-3 h-3 sm:w-4 sm:h-4" />
           ) : (
-            <Copy className="w-4 h-4" />
+            <Copy className="w-3 h-3 sm:w-4 sm:h-4" />
           )}
         </button>
-        <SyntaxHighlighter
-          language={language}
-          style={isDarkMode ? oneDark : oneLight}
-          customStyle={{
-            margin: 0,
-            borderRadius: "0 0 0.5rem 0.5rem",
-            fontSize: "0.875rem",
-            lineHeight: "1.5",
-          }}
-        >
-          {code}
-        </SyntaxHighlighter>
+      </div>
+      <div className="relative overflow-hidden">
+        <div className="overflow-x-auto">
+          <SyntaxHighlighter
+            language={language}
+            style={isDarkMode ? oneDark : oneLight}
+            customStyle={{
+              margin: 0,
+              borderRadius: "0 0 0.5rem 0.5rem",
+              fontSize: "0.75rem",
+              lineHeight: "1.4",
+              minWidth: "100%",
+            }}
+            className="text-xs sm:text-sm"
+            wrapLines={true}
+            wrapLongLines={true}
+          >
+            {code}
+          </SyntaxHighlighter>
+        </div>
       </div>
     </div>
   );
