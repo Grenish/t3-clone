@@ -1,61 +1,11 @@
-import { createServerClient } from '@supabase/ssr';
-import { cookies } from 'next/headers';
+import { createServerSupabaseClient, requireAuth } from '@/lib/supabase-server';
 import { NextRequest, NextResponse } from 'next/server';
-
-async function createSupabaseServerClient(request?: NextRequest) {
-  if (request) {
-    return createServerClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      {
-        cookies: {
-          getAll() {
-            return request.cookies.getAll()
-          },
-          setAll(cookiesToSet) {
-            // Can't set cookies in API routes, but we can read them
-          },
-        },
-      }
-    )
-  } else {
-    const cookieStore = await cookies();
-    return createServerClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      {
-        cookies: {
-          getAll() {
-            return cookieStore.getAll();
-          },
-          setAll(cookiesToSet) {
-            try {
-              cookiesToSet.forEach(({ name, value, options }) =>
-                cookieStore.set(name, value, options)
-              );
-            } catch {
-              // The `setAll` method was called from a Server Component.
-            }
-          },
-        },
-      }
-    );
-  }
-}
 
 // GET - Export user conversation history
 export async function GET(req: NextRequest) {
   try {
-    const supabase = await createSupabaseServerClient(req);
-    
-    const { data: { user }, error: userError } = await supabase.auth.getUser();
-    
-    if (userError || !user) {
-      return NextResponse.json(
-        { error: 'Authentication required' }, 
-        { status: 401 }
-      );
-    }
+    const user = await requireAuth();
+    const supabase = await createServerSupabaseClient(req);
 
     // Fetch all conversations with their messages
     const { data: conversations, error: convError } = await supabase
@@ -90,49 +40,38 @@ export async function GET(req: NextRequest) {
         )
       `)
       .eq('user_id', user.id)
-      .order('created_at', { ascending: false });
+      .order('updated_at', { ascending: false });
 
     if (convError) {
+      console.error('Conversations fetch error:', convError);
       return NextResponse.json(
-        { error: 'Failed to export conversation history' }, 
+        { error: 'Failed to fetch conversation history' }, 
         { status: 500 }
       );
     }
 
-    // Get user preferences
-    const { data: preferences } = await supabase
-      .from('user_preferences')
-      .select('*')
-      .eq('user_id', user.id)
-      .single();
-
-    // Prepare export data
+    // Format the response for export
     const exportData = {
-      export_info: {
-        user_id: user.id,
-        user_email: user.email,
-        export_date: new Date().toISOString(),
-        total_conversations: conversations?.length || 0,
-        total_messages: conversations?.reduce((acc, conv) => acc + (conv.messages?.length || 0), 0) || 0
-      },
-      user_preferences: preferences || null,
+      user_id: user.id,
+      export_date: new Date().toISOString(),
+      total_conversations: conversations?.length || 0,
       conversations: conversations || []
     };
 
-    // Create filename with timestamp
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-    const filename = `chat-history-export-${timestamp}.json`;
-
-    // Return as downloadable file
-    return new NextResponse(JSON.stringify(exportData, null, 2), {
-      status: 200,
-      headers: {
-        'Content-Type': 'application/json',
-        'Content-Disposition': `attachment; filename="${filename}"`,
-      },
+    return NextResponse.json({ 
+      history: exportData,
+      message: 'Conversation history exported successfully'
     });
     
   } catch (error) {
+    if (error instanceof Error && error.message === 'Authentication required') {
+      return NextResponse.json(
+        { error: 'Authentication required' }, 
+        { status: 401 }
+      );
+    }
+    
+    console.error('History GET error:', error);
     return NextResponse.json(
       { error: 'Internal server error' }, 
       { status: 500 }
@@ -143,16 +82,8 @@ export async function GET(req: NextRequest) {
 // DELETE - Delete all conversation history
 export async function DELETE(req: NextRequest) {
   try {
-    const supabase = await createSupabaseServerClient(req);
-    
-    const { data: { user }, error: userError } = await supabase.auth.getUser();
-    
-    if (userError || !user) {
-      return NextResponse.json(
-        { error: 'Authentication required' }, 
-        { status: 401 }
-      );
-    }
+    const user = await requireAuth();
+    const supabase = await createServerSupabaseClient(req);
 
     // Delete all conversations (this will cascade to messages due to foreign key constraints)
     const { error: conversationsError } = await supabase
@@ -172,6 +103,14 @@ export async function DELETE(req: NextRequest) {
     });
     
   } catch (error) {
+    if (error instanceof Error && error.message === 'Authentication required') {
+      return NextResponse.json(
+        { error: 'Authentication required' }, 
+        { status: 401 }
+      );
+    }
+    
+    console.error('History DELETE error:', error);
     return NextResponse.json(
       { error: 'Internal server error' }, 
       { status: 500 }
