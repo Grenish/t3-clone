@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { gsap } from "gsap";
 import { useTheme } from "@/util/theme-provider";
@@ -12,6 +12,7 @@ import AutoResizeTextarea from "@/components/auto-resize-textarea";
 import Tooltip from "@/components/tooltip";
 import AddMenu from "@/components/add-menu";
 import ToolsMenu from "@/components/tools-menu";
+import ModelSelector from "@/components/model-selector";
 import PageTransition from "@/components/page-transition";
 import { Button } from "@/components/ui/button";
 import {
@@ -23,12 +24,14 @@ import {
   LogIn,
   UserPlus,
   AlertTriangle,
+  Send,
 } from "lucide-react";
 
 export default function ReworkPage() {
   const [selectedPrompts, setSelectedPrompts] = useState<string[]>([]);
   const [textareaValue, setTextareaValue] = useState("");
   const [uploadedFiles, setUploadedFiles] = useState<File[]>([]);
+  const [isUploadingFiles, setIsUploadingFiles] = useState(false);
   const [selectedTool, setSelectedTool] = useState<{
     tool: string;
     persona?: string;
@@ -41,12 +44,15 @@ export default function ReworkPage() {
   const [user, setUser] = useState<any>(null);
   const [showLimitModal, setShowLimitModal] = useState(false);
   const [showLimitWarning, setShowLimitWarning] = useState(false);
-  const [selectedModel, setSelectedModel] = useState<string>('gemini-2.0-flash');
+  const [selectedModel, setSelectedModel] =
+    useState<string>("gemini-2.0-flash");
+  const [inputHasMoved, setInputHasMoved] = useState(false);
   const { isDarkMode } = useTheme();
   const pageRef = useRef<HTMLDivElement>(null);
   const formRef = useRef<HTMLDivElement>(null);
   const headerContentRef = useRef<HTMLDivElement>(null);
   const suggestionsRef = useRef<HTMLDivElement>(null);
+  const inputSectionRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
 
   const addButtonRef = useRef<HTMLButtonElement>(
@@ -62,7 +68,7 @@ export default function ReworkPage() {
     "Generate a workout plan for beginners at home.",
     "Convert this paragraph into a professional LinkedIn post.",
   ];
-  
+
   const displayedSuggestions =
     selectedPrompts.length > 0 ? selectedPrompts : defaultPromptSuggestions;
 
@@ -78,8 +84,11 @@ export default function ReworkPage() {
     setUploadedFiles((prev) => prev.filter((_, i) => i !== index));
   };
 
-  const handleToolSelect = (tool: string, persona?: string) => {
-    setSelectedTool({ tool, persona });
+  const handleToolSelect = (tool: { tool?: string; persona?: string }) => {
+    setSelectedTool({
+      tool: tool.tool || tool.persona || "",
+      persona: tool.persona,
+    });
   };
 
   const handleRemoveTool = () => {
@@ -97,137 +106,184 @@ export default function ReworkPage() {
     return `${truncatedName}.${extension}`;
   };
 
-  // SIMPLE SOLUTION: Just navigate to a new UUID immediately and let chat page handle everything
-  const handleSend = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    
-    if (!textareaValue.trim() || isTransitioning) return;
+  const handleSend = useCallback(
+    async (e: React.FormEvent<HTMLFormElement>) => {
+      e.preventDefault();
 
-    // Check if user can make API call
-    if (!(window as any).canMakeApiCall?.()) {
-      if (!isAuthenticated) {
-        setShowLimitWarning(true);
-      } else {
-        setShowLimitModal(true);
+      if (!textareaValue.trim() || isTransitioning) return;
+
+      if (!(window as any).canMakeApiCall?.()) {
+        if (!isAuthenticated) {
+          setShowLimitWarning(true);
+        } else {
+          setShowLimitModal(true);
+        }
+        return;
       }
-      return;
-    }
 
-    setIsTransitioning(true);
-    setShowLimitWarning(false);
+      setIsTransitioning(true);
+      setShowLimitWarning(false);
 
-    try {
-      // SIMPLE: Generate a real UUID immediately - no temp IDs, no complexity
-      const newConversationId = crypto.randomUUID();
-      
-      console.log('🔥 Rework: Generated UUID, navigating to:', newConversationId);
+      if (
+        !inputHasMoved &&
+        inputSectionRef.current &&
+        headerContentRef.current
+      ) {
+        setInputHasMoved(true);
 
-      const searchParams = new URLSearchParams({
-        message: textareaValue.trim(),
-        transition: "true",
-        modelId: selectedModel, // Include selected model
-      });
+        const viewportHeight = window.innerHeight;
+        const inputRect = inputSectionRef.current.getBoundingClientRect();
+        const targetY = viewportHeight - inputRect.height - 20;
+        const currentY = inputRect.top;
+        const moveDistance = targetY - currentY;
 
-      if (selectedTool?.persona) {
-        searchParams.set("persona", selectedTool.persona);
-      }
-      
-      // Trigger transition animation
-      const tl = gsap.timeline({
-        onComplete: () => {
-          // Navigate to the new conversation with a real UUID
-          router.push(`/c/${newConversationId}?${searchParams.toString()}`);
-        },
-      });
+        const tl = gsap.timeline();
 
-      // Animate out content with better sequencing
-      tl.to(
-        ".prompt-item",
-        {
-          opacity: 0,
-          y: -30,
-          stagger: 0.05,
-          duration: 0.4,
-          ease: "power2.inOut",
-        },
-        0
-      );
-
-      tl.to(
-        formRef.current,
-        {
-          y: -50,
+        tl.to(headerContentRef.current, {
+          y: -100,
           opacity: 0,
           duration: 0.5,
           ease: "power2.inOut",
-        },
-        0.1
-      );
+        }).to(
+          inputSectionRef.current,
+          {
+            y: moveDistance,
+            duration: 0.6,
+            ease: "power2.inOut",
+          },
+          "-=0.2"
+        );
 
-      tl.to(
-        headerContentRef.current,
-        {
-          y: -60,
-          opacity: 0,
-          duration: 0.4,
-          ease: "power2.inOut",
-        },
-        0.15
-      );
+        await new Promise((resolve) => {
+          tl.call(resolve);
+        });
+      }
 
-      tl.to(
-        ".container",
-        {
-          scale: 0.95,
-          filter: "blur(4px)",
-          duration: 0.6,
-          ease: "power2.inOut",
-        },
-        0.2
+      try {
+        const title =
+          textareaValue.length > 40
+            ? textareaValue.substring(0, 37) + "..."
+            : textareaValue;
+
+        const response = await fetch("/api/conversations", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            title: title,
+          }),
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          const conversationId = data.conversation.id;
+
+          // Convert uploaded files to the format expected by the API
+          const filesForAPI = await Promise.all(
+            uploadedFiles.map(async (file) => {
+              return new Promise<any>((resolve) => {
+                const reader = new FileReader();
+                reader.onload = () => {
+                  resolve({
+                    name: file.name,
+                    type: file.type,
+                    size: file.size,
+                    data: reader.result as string, // This will be a data URL (base64)
+                  });
+                };
+                reader.readAsDataURL(file);
+              });
+            })
+          );
+
+          console.log('📎 Sending', filesForAPI.length, 'files with new conversation');
+
+          const searchParams = new URLSearchParams({
+            transition: "true",
+            message: textareaValue,
+            modelId: selectedModel,
+            webSearchEnabled: selectedTool?.tool === "Web Search" ? "true" : "false", // Add web search parameter
+          });
+
+          if (selectedTool?.persona) {
+            searchParams.set("persona", selectedTool.persona);
+          }
+
+          // Include files in sessionStorage for the transition
+          if (filesForAPI.length > 0) {
+            sessionStorage.setItem(`files_${conversationId}`, JSON.stringify(filesForAPI));
+            searchParams.set("hasFiles", "true");
+          }
+
+          router.push(`/c/${conversationId}?${searchParams.toString()}`);
+        } else {
+          throw new Error("Failed to create conversation");
+        }
+      } catch (error) {
+        setIsTransitioning(false);
+        setInputHasMoved(false);
+      }
+    },
+    [
+      textareaValue,
+      isTransitioning,
+      isAuthenticated,
+      selectedModel,
+      selectedTool,
+      inputHasMoved,
+      uploadedFiles,
+      router,
+    ]
+  );
+
+  const checkAuth = useCallback(async () => {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (user) {
+      setIsAuthenticated(true);
+      setUserName(
+        user.user_metadata?.full_name || user.email?.split("@")[0] || "User"
       );
-      
-    } catch (error) {
-      console.error("Error in navigation:", error);
-      setIsTransitioning(false);
+      setUser(user);
+    } else {
+      setIsAuthenticated(false);
+      setUserName("Guest");
+      setUser(null);
     }
-  };
+  }, []);
 
   useEffect(() => {
-    const checkAuth = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      
-      if (user) {
-        setIsAuthenticated(true);
-        setUserName(user.user_metadata?.full_name || user.email?.split('@')[0] || 'User');
-      } else {
-        setIsAuthenticated(false);
-        setUserName('Guest');
-      }
-    };
-
     checkAuth();
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((event, session) => {
       if (session) {
         setIsAuthenticated(true);
         const user = session.user;
-        setUserName(user.user_metadata?.full_name || user.email?.split('@')[0] || 'User');
+        setUserName(
+          user.user_metadata?.full_name || user.email?.split("@")[0] || "User"
+        );
+        setUser(user);
       } else {
         setIsAuthenticated(false);
-        setUserName('Guest');
+        setUserName("Guest");
+        setUser(null);
       }
     });
 
     return () => subscription.unsubscribe();
-  }, []);
+  }, [checkAuth]);
 
-  // Load user preferences including model selection
   useEffect(() => {
     const loadUserPreferences = async () => {
       if (!isAuthenticated || !user) return;
 
       try {
-        const response = await fetch('/api/user/preferences');
+        const response = await fetch("/api/user/preferences");
         if (response.ok) {
           const { preferences } = await response.json();
           if (preferences?.preferred_model) {
@@ -235,7 +291,7 @@ export default function ReworkPage() {
           }
         }
       } catch (error) {
-        console.error('Failed to load user preferences:', error);
+        console.error("Failed to load user preferences:", error);
       }
     };
 
@@ -244,34 +300,32 @@ export default function ReworkPage() {
 
   const LimitModal = () => (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className={`p-6 rounded-lg max-w-md w-full mx-4 ${
-        isDarkMode ? 'bg-gray-800' : 'bg-white'
-      }`}>
-        <h3 className={`text-lg font-semibold mb-4 ${
-          isDarkMode ? 'text-white' : 'text-gray-900'
-        }`}>
+      <div
+        className={`p-6 rounded-lg max-w-md w-full mx-4 ${
+          isDarkMode ? "bg-gray-800" : "bg-white"
+        }`}
+      >
+        <h3
+          className={`text-lg font-semibold mb-4 ${
+            isDarkMode ? "text-white" : "text-gray-900"
+          }`}
+        >
           Daily Limit Reached
         </h3>
-        <p className={`mb-6 ${
-          isDarkMode ? 'text-gray-300' : 'text-gray-600'
-        }`}>
-          {isAuthenticated 
+        <p className={`mb-6 ${isDarkMode ? "text-gray-300" : "text-gray-600"}`}>
+          {isAuthenticated
             ? "You've reached your daily API limit. Upgrade to Pro for 50 daily requests."
-            : "You've used all 5 free requests today. Sign in to get 20 daily requests or create an account for more features."
-          }
+            : "You've used all 5 free requests today. Sign in to get 20 daily requests or create an account for more features."}
         </p>
         <div className="flex gap-3">
           {!isAuthenticated && (
             <>
-              <Button
-                onClick={() => router.push('/login')}
-                className="flex-1"
-              >
+              <Button onClick={() => router.push("/login")} className="flex-1">
                 <LogIn className="w-4 h-4 mr-2" />
                 Sign In
               </Button>
               <Button
-                onClick={() => router.push('/signup')}
+                onClick={() => router.push("/signup")}
                 variant="outline"
                 className="flex-1"
               >
@@ -282,16 +336,15 @@ export default function ReworkPage() {
           )}
           {isAuthenticated && (
             <Button
-              onClick={() => {/* Handle pro upgrade */}}
+              onClick={() => {
+                /* Handle pro upgrade */
+              }}
               className="flex-1"
             >
               Upgrade to Pro
             </Button>
           )}
-          <Button
-            onClick={() => setShowLimitModal(false)}
-            variant="outline"
-          >
+          <Button onClick={() => setShowLimitModal(false)} variant="outline">
             Cancel
           </Button>
         </div>
@@ -311,289 +364,265 @@ export default function ReworkPage() {
     <PageTransition>
       <div
         ref={pageRef}
-        className={`w-full min-h-screen flex flex-col items-center justify-center px-4 sm:px-6 lg:px-8 ${
+        className={`w-full min-h-screen flex flex-col ${
           isDarkMode
             ? "bg-gradient-to-b from-[#1B1B1B] to-[#003153]"
             : "bg-gradient-to-b from-[#fdfbfb] to-[#ebedee]"
         }`}
       >
-        <div className="w-full max-w-4xl mx-auto">
-          <div ref={headerContentRef}>
-            <div className="w-full flex items-center justify-center">
-              <GradientBall />
-            </div>
-
-            <div className="mt-8 text-center">
-              <TimeGreetings
-                user={userName}
-                className={`text-2xl sm:text-3xl lg:text-4xl font-light mb-2 ${
-                  isDarkMode ? "text-gray-300" : "text-gray-700"
-                }`}
-              />
-              <h2
-                className={`text-2xl sm:text-3xl lg:text-4xl font-light ${
-                  isDarkMode ? "text-white" : "text-gray-900"
-                }`}
-              >
-                How can I help you today?
-              </h2>
-            </div>
+        {/* Mobile Header with Model Selector */}
+        <div
+          className={`block sm:hidden border-b px-4 py-4 ${
+            isDarkMode
+              ? "bg-gray-800/95 backdrop-blur-sm border-gray-700"
+              : "bg-white/95 backdrop-blur-sm border-gray-200"
+          }`}
+        >
+          <div className="flex items-center justify-center">
+            <ModelSelector
+              selectedModel={selectedModel}
+              onModelChange={setSelectedModel}
+              size="sm"
+              className="w-full max-w-[240px]"
+            />
           </div>
+        </div>
 
-          <div ref={suggestionsRef} className="mt-12 sm:mt-16 w-full">
-            <PromptBox onPromptsChange={setSelectedPrompts} />
-            <div className="max-w-2xl mx-auto mt-8">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {displayedSuggestions.map((suggestion, index) => (
-                  <button
-                    key={index}
-                    onClick={() => handleSuggestionClick(suggestion)}
-                    disabled={isTransitioning}
-                    className={`text-left p-4 cursor-pointer rounded-xl border transition-all duration-300 group disabled:opacity-50 disabled:cursor-not-allowed ${
+        <div className="flex-1 flex flex-col items-center justify-center px-4 sm:px-8 lg:px-12">
+          <div className="w-full max-w-6xl mx-auto">
+            <div ref={headerContentRef} className="text-center mb-12 sm:mb-16">
+              <div className="w-full flex items-center justify-center mb-8">
+                <GradientBall />
+              </div>
+
+              <div className="space-y-4">
+                <TimeGreetings
+                  user={userName}
+                  className={`text-3xl sm:text-4xl lg:text-5xl font-light leading-tight ${
+                    isDarkMode ? "text-gray-300" : "text-gray-700"
+                  }`}
+                />
+              </div>
+            </div>
+
+            {/* Input Section */}
+            <div ref={inputSectionRef} className="w-full mt-8 sm:mt-12">
+              <div ref={formRef} className="w-full sm:max-w-4xl mx-auto">
+                {/* Limit Warning */}
+                {showLimitWarning && !isAuthenticated && (
+                  <div
+                    className={`mb-6 p-6 rounded-3xl border flex items-start gap-4 backdrop-blur-sm ${
                       isDarkMode
-                        ? "border-gray-700 bg-gray-800/60 hover:bg-gray-700/60 hover:border-gray-600 hover:shadow-lg hover:shadow-blue-900/10"
-                        : "border-gray-200 bg-white hover:border-gray-300 hover:shadow-md"
+                        ? "bg-orange-900/20 border-orange-800/50 text-orange-200"
+                        : "bg-orange-50/80 border-orange-200 text-orange-800"
                     }`}
                   >
-                    <div className="flex items-start justify-between">
-                      <span
-                        className={`text-sm leading-relaxed pr-3 font-medium ${
-                          isDarkMode ? "text-gray-200" : "text-gray-700"
-                        }`}
-                      >
-                        {suggestion}
-                      </span>
-                      <ChevronRight
-                        className={`w-4 h-4 transition-colors duration-300 flex-shrink-0 mt-0.5 ${
-                          isDarkMode
-                            ? "text-gray-500 group-hover:text-gray-300"
-                            : "text-gray-400 group-hover:text-gray-600"
-                        }`}
-                      />
+                    <AlertTriangle className="w-6 h-6 flex-shrink-0 mt-0.5" />
+                    <div className="flex-1 min-w-0">
+                      <p className="font-semibold mb-1">Daily limit reached</p>
+                      <p className="text-sm opacity-90 mb-4">
+                        Sign in to get 20 daily requests or create an account
+                        for more features.
+                      </p>
+                      <div className="flex gap-3">
+                        <Button size="sm" onClick={() => router.push("/login")}>
+                          Sign In
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => router.push("/signup")}
+                        >
+                          Sign Up
+                        </Button>
+                      </div>
                     </div>
-                  </button>
-                ))}
+                  </div>
+                )}
+
+                {/* Input Form */}
+                <form onSubmit={handleSend}>
+                  <div
+                    className={`rounded-3xl border shadow-xl p-4 sm:p-5 backdrop-blur-sm ${
+                      isDarkMode
+                        ? "bg-gray-800/90 border-gray-700/50"
+                        : "bg-white/90 border-gray-200/50"
+                    }`}
+                  >
+                    {/* File Uploads */}
+                    {uploadedFiles.length > 0 && (
+                      <div className="mb-4 flex flex-wrap gap-3">
+                        {uploadedFiles.map((file, index) => (
+                          <div
+                            key={index}
+                            className={`flex items-center gap-3 px-4 py-2 rounded-2xl border transition-all hover:scale-105 ${
+                              isDarkMode
+                                ? "bg-gray-700/60 border-gray-600 hover:bg-gray-700"
+                                : "bg-gray-50 border-gray-200 hover:bg-gray-100"
+                            }`}
+                          >
+                            {file.type.startsWith("image/") ? (
+                              <img
+                                src={URL.createObjectURL(file)}
+                                alt="Preview"
+                                className="w-6 h-6 object-cover rounded-lg border"
+                              />
+                            ) : (
+                              <FileText
+                                className={`w-5 h-5 ${
+                                  isDarkMode ? "text-gray-400" : "text-gray-500"
+                                }`}
+                              />
+                            )}
+                            <span
+                              className={`text-sm font-medium ${
+                                isDarkMode ? "text-gray-300" : "text-gray-600"
+                              }`}
+                            >
+                              {getDisplayFileName(file.name)}
+                            </span>
+                            <button
+                              onClick={() => handleRemoveFile(index)}
+                              className={`transition-colors hover:scale-110 ${
+                                isDarkMode
+                                  ? "text-gray-500 hover:text-red-400"
+                                  : "text-gray-400 hover:text-red-500"
+                              }`}
+                            >
+                              <X className="w-4 h-4" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Text Input */}
+                    <AutoResizeTextarea
+                      placeholder="Ask me anything..."
+                      value={textareaValue}
+                      onChange={setTextareaValue}
+                      onSubmit={() => {
+                        if (textareaValue.trim() && !isTransitioning) {
+                          const event = new Event("submit", {
+                            bubbles: true,
+                            cancelable: true,
+                          });
+                          const form = document.querySelector("form");
+                          if (form) form.dispatchEvent(event);
+                        }
+                      }}
+                      className="py-4 text-base leading-relaxed resize-none w-full"
+                    />
+
+                    {/* Controls */}
+                    <div className="flex items-center justify-between gap-3 mt-4">
+                      {/* Left Controls */}
+                      <div className="flex items-center gap-2 flex-1 flex-wrap">
+                        {/* Action Buttons */}
+                        {[
+                          {
+                            ref: addButtonRef,
+                            icon: Plus,
+                            label: "Add",
+                            onClick: () => setShowAddMenu(!showAddMenu),
+                          },
+                          {
+                            ref: toolsButtonRef,
+                            icon: Settings2,
+                            label: "Tools",
+                            onClick: () => setShowToolsMenu(!showToolsMenu),
+                          },
+                        ].map((button, idx) => (
+                          <div key={idx} className="relative">
+                            <Tooltip message={`${button.label} options`}>
+                              <button
+                                ref={button.ref}
+                                onClick={button.onClick}
+                                className={`flex items-center gap-2 px-3 sm:px-4 py-2 rounded-2xl border transition-all duration-200 hover:scale-105 active:scale-95 ${
+                                  isDarkMode
+                                    ? "bg-gray-700/50 hover:bg-gray-600 text-gray-300 hover:text-white border-gray-600"
+                                    : "bg-gray-50 hover:bg-gray-100 text-gray-600 hover:text-gray-800 border-gray-200"
+                                }`}
+                              >
+                                <button.icon className="w-4 h-4" />
+                                <span className="font-medium hidden sm:inline">
+                                  {button.label}
+                                </span>
+                              </button>
+                            </Tooltip>
+                          </div>
+                        ))}
+
+                        {/* Tool Chips - Next to Tools button */}
+                        {selectedTool && (
+                          <div
+                            className={`flex items-center gap-2 px-3 py-2 rounded-2xl border ${
+                              isDarkMode
+                                ? "bg-blue-900/30 border-blue-700/50 text-blue-300"
+                                : "bg-blue-50 border-blue-200 text-blue-700"
+                            }`}
+                          >
+                            <span className="text-sm font-medium truncate max-w-32 sm:max-w-none">
+                              {selectedTool.persona || selectedTool.tool}
+                            </span>
+                            <button
+                              onClick={handleRemoveTool}
+                              className="transition-all hover:scale-110"
+                            >
+                              <X className="w-4 h-4" />
+                            </button>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Right Controls */}
+                      <div className="flex items-center gap-2 sm:gap-3">
+                        {/* Desktop Model Selector */}
+                        <div className="hidden sm:block">
+                          <ModelSelector
+                            selectedModel={selectedModel}
+                            onModelChange={setSelectedModel}
+                            size="sm"
+                          />
+                        </div>
+
+                        {/* Send Button */}
+                        <button
+                          type="submit"
+                          disabled={!textareaValue.trim() || isTransitioning}
+                          className={`px-4 sm:px-6 py-3 rounded-2xl font-medium transition-all duration-200 transform hover:scale-105 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none shadow-lg ${
+                            isDarkMode
+                              ? "bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 text-white disabled:from-gray-600 disabled:to-gray-600"
+                              : "bg-gradient-to-r from-gray-900 to-gray-800 hover:from-gray-800 hover:to-gray-700 text-white disabled:from-gray-400 disabled:to-gray-400"
+                          }`}
+                        >
+                          <Send className="w-5 h-5" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </form>
+
+                {/* Menus */}
+                <AddMenu
+                  isOpen={showAddMenu}
+                  onClose={() => setShowAddMenu(false)}
+                  onFileSelect={handleFileSelect}
+                  buttonRef={addButtonRef}
+                />
+
+                <ToolsMenu
+                  isOpen={showToolsMenu}
+                  onClose={() => setShowToolsMenu(false)}
+                  onToolSelect={handleToolSelect}
+                  buttonRef={toolsButtonRef}
+                />
               </div>
             </div>
           </div>
 
-          <div
-            className="w-full mt-16 sm:mt-20"
-            style={{
-              zIndex: isTransitioning ? 50 : "auto",
-            }}
-          >
-            <div ref={formRef} className="max-w-3xl mx-auto">
-              {/* Show limit warning above input when needed */}
-              {showLimitWarning && !isAuthenticated && (
-                <div className={`mb-4 p-4 rounded-xl border flex items-center gap-3 ${
-                  isDarkMode
-                    ? "bg-orange-900/20 border-orange-800 text-orange-200"
-                    : "bg-orange-50 border-orange-200 text-orange-800"
-                }`}>
-                  <AlertTriangle className="w-5 h-5 flex-shrink-0" />
-                  <div className="flex-1">
-                    <p className="text-sm font-medium">
-                      You've hit your daily limit of 5 requests.
-                    </p>
-                    <p className="text-xs mt-1 opacity-90">
-                      Sign in to get 20 daily requests or create an account for more features.
-                    </p>
-                  </div>
-                  <div className="flex gap-2">
-                    <Button
-                      size="sm"
-                      onClick={() => router.push('/login')}
-                      className="text-xs"
-                    >
-                      Sign In
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => router.push('/signup')}
-                      className="text-xs"
-                    >
-                      Sign Up
-                    </Button>
-                  </div>
-                </div>
-              )}
-
-              <form onSubmit={handleSend}>
-                <div
-                  className={`rounded-2xl border shadow-sm p-4 ${
-                    isDarkMode
-                      ? "bg-gray-800/70 border-gray-700"
-                      : "bg-white border-gray-200"
-                  }`}
-                >
-
-                  {uploadedFiles.length > 0 && (
-                    <div className="mb-4 flex flex-wrap gap-2">
-                      {uploadedFiles.map((file, index) => (
-                        <div
-                          key={index}
-                          className={`flex items-center gap-2 px-3 py-2 rounded-lg border max-w-fit ${
-                            isDarkMode
-                              ? "bg-gray-700/60 border-gray-600"
-                              : "bg-gray-50 border-gray-100"
-                          }`}
-                        >
-                          {file.type.startsWith("image/") ? (
-                            <img
-                              src={URL.createObjectURL(file)}
-                              alt="Preview"
-                              className="w-6 h-6 object-cover rounded border"
-                            />
-                          ) : (
-                            <FileText
-                              className={`w-4 h-4 flex-shrink-0 ${
-                                isDarkMode ? "text-gray-400" : "text-gray-500"
-                              }`}
-                            />
-                          )}
-                          <span
-                            className={`text-xs font-medium ${
-                              isDarkMode ? "text-gray-300" : "text-gray-600"
-                            }`}
-                          >
-                            {getDisplayFileName(file.name)}
-                          </span>
-                          <button
-                            onClick={() => handleRemoveFile(index)}
-                            className={`flex-shrink-0 transition-colors ${
-                              isDarkMode
-                                ? "text-gray-500 hover:text-gray-300"
-                                : "text-gray-400 hover:text-gray-600"
-                            }`}
-                          >
-                            <X className="w-3 h-3" />
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                  <AutoResizeTextarea
-                    placeholder="Ask me anything..."
-                    value={textareaValue}
-                    onChange={setTextareaValue}
-                    onSubmit={() => {
-                      if (textareaValue.trim() && !isTransitioning) {
-                        const event = new Event("submit", {
-                          bubbles: true,
-                          cancelable: true,
-                        });
-                        const form = document.querySelector("form");
-                        if (form) {
-                          form.dispatchEvent(event);
-                        }
-                      }
-                    }}
-                    className="py-3 text-base"
-                  />
-
-                  <div className="flex items-center justify-between mt-3">
-                    <div className="flex gap-2">
-                      <div className="relative">
-                        <Tooltip message="Add images or documents">
-                          <button
-                            ref={addButtonRef}
-                            onClick={() => setShowAddMenu(!showAddMenu)}
-                            className={`text-sm flex items-center gap-2 px-3 py-2 rounded-lg border transition-all duration-200 cursor-pointer ${
-                              isDarkMode
-                                ? "bg-gray-700/50 hover:bg-gray-600/50 text-gray-300 hover:text-gray-100 border-gray-600 hover:border-gray-500"
-                                : "bg-gray-50 hover:bg-gray-100 text-gray-600 hover:text-gray-800 border-gray-200 hover:border-gray-300"
-                            }`}
-                          >
-                            <Plus className="w-4 h-4" />
-                            <span className="font-medium">Add</span>
-                          </button>
-                        </Tooltip>
-
-                        <AddMenu
-                          isOpen={showAddMenu}
-                          onClose={() => setShowAddMenu(false)}
-                          onFileSelect={handleFileSelect}
-                          buttonRef={addButtonRef}
-                        />
-                      </div>
-
-                      <div className="relative">
-                        <Tooltip message="Select tools and personas">
-                          <button
-                            ref={toolsButtonRef}
-                            onClick={() => setShowToolsMenu(!showToolsMenu)}
-                            className={`text-sm flex items-center gap-2 px-3 py-2 rounded-lg border transition-all duration-200 cursor-pointer ${
-                              isDarkMode
-                                ? "bg-gray-700/50 hover:bg-gray-600/50 text-gray-300 hover:text-gray-100 border-gray-600 hover:border-gray-500"
-                                : "bg-gray-50 hover:bg-gray-100 text-gray-600 hover:text-gray-800 border-gray-200 hover:border-gray-300"
-                            }`}
-                          >
-                            <Settings2 className="w-4 h-4" />
-                            <span className="font-medium">Tools</span>
-                          </button>
-                        </Tooltip>
-
-                        <ToolsMenu
-                          isOpen={showToolsMenu}
-                          onClose={() => setShowToolsMenu(false)}
-                          onToolSelect={handleToolSelect}
-                          buttonRef={toolsButtonRef}
-                        />
-                      </div>
-
-                      {selectedTool && (
-                        <div
-                          className={`flex items-center gap-2 px-3 py-2 rounded-lg border ${
-                            isDarkMode
-                              ? "bg-blue-900/40 border-blue-700/50"
-                              : "bg-blue-50 border-blue-200"
-                          }`}
-                        >
-                          <span
-                            className={`text-sm font-medium ${
-                              isDarkMode ? "text-blue-300" : "text-blue-700"
-                            }`}
-                          >
-                            {selectedTool.persona
-                              ? selectedTool.persona
-                              : selectedTool.tool}
-                          </span>
-                          <button
-                            onClick={handleRemoveTool}
-                            className={`transition-colors ${
-                              isDarkMode
-                                ? "text-blue-400 hover:text-blue-300"
-                                : "text-blue-400 hover:text-blue-600"
-                            }`}
-                          >
-                            <X className="w-3 h-3" />
-                          </button>
-                        </div>
-                      )}
-                    </div>
-
-                    <button
-                      type="submit"
-                      disabled={!textareaValue.trim() || isTransitioning}
-                      className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors duration-200 ${
-                        isDarkMode
-                          ? "bg-blue-600 hover:bg-blue-500 disabled:bg-gray-600 disabled:cursor-not-allowed text-white disabled:text-gray-400"
-                          : "bg-gray-900 hover:bg-gray-800 disabled:bg-gray-400 disabled:cursor-not-allowed text-white"
-                      }`}
-                    >
-                      {isTransitioning ? "Sending..." : "Send"}
-                    </button>
-                  </div>
-                </div>
-              </form>
-            </div>
-          </div>
+          {showLimitModal && <LimitModal />}
         </div>
-
-        {showLimitModal && <LimitModal />}
       </div>
     </PageTransition>
   );
