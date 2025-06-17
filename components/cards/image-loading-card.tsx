@@ -272,16 +272,25 @@ export default function ImageLoadingCard({
   // Calculate container dimensions
   const getContainerDimensions = () => {
     if (imageDimensions && imageUrl && !isGenerating) {
+      // Make dimensions responsive
+      const maxWidth = Math.min(imageDimensions.width, window.innerWidth - 32); // Account for padding
+      const aspectRatio = imageDimensions.height / imageDimensions.width;
+      const responsiveHeight = maxWidth * aspectRatio;
+      
       return {
-        width: imageDimensions.width,
-        height: imageDimensions.height + (prompt ? 64 : 0), // Add space for prompt header
+        width: maxWidth,
+        height: responsiveHeight + (prompt ? 64 : 0), // Add space for prompt header
       };
     }
 
-    // Default dimensions for loading and error states
+    // Default responsive dimensions for loading and error states
+    const viewportWidth = typeof window !== 'undefined' ? window.innerWidth : 400;
+    const defaultWidth = Math.min(400, viewportWidth - 32);
+    const defaultHeight = Math.min(400, (viewportWidth - 32) * 0.75); // 4:3 aspect ratio
+    
     return {
-      width: typeof width === "number" ? width : 400,
-      height: typeof height === "number" ? height : 400,
+      width: defaultWidth,
+      height: defaultHeight,
     };
   };
 
@@ -291,11 +300,12 @@ export default function ImageLoadingCard({
     return (
       <div
         ref={cardRef}
-        className={`relative overflow-hidden rounded-2xl shadow-lg border border-gray-200 bg-white ${className}`}
+        className={`relative overflow-hidden rounded-2xl shadow-lg border border-gray-200 bg-white ${className} w-full max-w-full`}
         style={{
-          width: containerDimensions.width,
+          width: '100%',
+          maxWidth: containerDimensions.width,
           height: containerDimensions.height,
-          maxWidth: "100%", // Ensure it doesn't overflow container
+          minHeight: '200px', // Ensure minimum height on mobile
         }}
         role="status"
         aria-live="polite"
@@ -307,9 +317,10 @@ export default function ImageLoadingCard({
       >
         {/* Prompt Header */}
         {prompt && (
-          <div className="absolute top-0 left-0 right-0 z-20 p-4 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-t-2xl">
-            <h3 className="font-semibold text-sm">Image Generation</h3>
-            <p className="text-xs opacity-90 mt-1 line-clamp-2">{prompt}</p>
+          <div className="absolute top-0 left-0 right-0 z-20 p-3 sm:p-4 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-t-2xl">
+            <h3 className="font-semibold text-xs sm:text-sm">Image Generation</h3>
+            <p className="text-xs opacity-90 mt-1 line-clamp-2 hidden sm:block">{prompt}</p>
+            <p className="text-xs opacity-90 mt-1 line-clamp-1 sm:hidden">{prompt}</p>
           </div>
         )}
 
@@ -361,12 +372,12 @@ export default function ImageLoadingCard({
 
         {/* Loading Content */}
         <div
-          className={`relative z-10 flex h-full flex-col items-center justify-center p-8 text-center ${
-            prompt ? "pt-24" : ""
+          className={`relative z-10 flex h-full flex-col items-center justify-center p-4 sm:p-8 text-center ${
+            prompt ? "pt-16 sm:pt-24" : ""
           }`}
         >
-          <div className="bg-white/20 backdrop-blur-sm rounded-xl p-6 border border-white/30">
-            <h3 className="mb-4 text-2xl font-extralight tracking-wide text-slate-700">
+          <div className="bg-white/20 backdrop-blur-sm rounded-xl p-4 sm:p-6 border border-white/30 w-full max-w-sm">
+            <h3 className="mb-3 sm:mb-4 text-lg sm:text-2xl font-extralight tracking-wide text-slate-700">
               {loadingText}
               <span ref={dotsRef} className="ml-1 inline-block text-slate-600">
                 ...
@@ -374,8 +385,8 @@ export default function ImageLoadingCard({
             </h3>
 
             {currentStep && totalSteps && (
-              <div className="w-full max-w-sm">
-                <div className="mb-4 flex justify-between text-sm font-light text-slate-600">
+              <div className="w-full">
+                <div className="mb-3 sm:mb-4 flex justify-between text-xs sm:text-sm font-light text-slate-600">
                   <span>
                     Step {currentStep} of {totalSteps}
                   </span>
@@ -395,7 +406,7 @@ export default function ImageLoadingCard({
               </div>
             )}
 
-            <p className="mt-6 text-sm font-light text-slate-500 tracking-wide">
+            <p className="mt-4 sm:mt-6 text-xs sm:text-sm font-light text-slate-500 tracking-wide">
               Crafting your vision...
             </p>
           </div>
@@ -426,29 +437,31 @@ export default function ImageLoadingCard({
   if (error || imageLoadError) {
     return (
       <div
-        className={`relative overflow-hidden rounded-2xl shadow-lg border border-red-200 bg-red-50 ${className}`}
+        className={`relative overflow-hidden rounded-2xl shadow-lg border border-red-200 bg-red-50 ${className} w-full max-w-full`}
         style={{
-          width: containerDimensions.width,
+          width: '100%',
+          maxWidth: containerDimensions.width,
           height: containerDimensions.height,
-          maxWidth: "100%",
+          minHeight: '200px',
         }}
       >
         {prompt && (
-          <div className="absolute top-0 left-0 right-0 z-20 p-4 bg-gradient-to-r from-red-500 to-pink-500 text-white rounded-t-2xl">
-            <h3 className="font-semibold text-sm">Image Generation Failed</h3>
-            <p className="text-xs opacity-90 mt-1 line-clamp-2">{prompt}</p>
+          <div className="absolute top-0 left-0 right-0 z-20 p-3 sm:p-4 bg-gradient-to-r from-red-500 to-pink-500 text-white rounded-t-2xl">
+            <h3 className="font-semibold text-xs sm:text-sm">Image Generation Failed</h3>
+            <p className="text-xs opacity-90 mt-1 line-clamp-2 hidden sm:block">{prompt}</p>
+            <p className="text-xs opacity-90 mt-1 line-clamp-1 sm:hidden">{prompt}</p>
           </div>
         )}
 
         <div
-          className={`flex h-full items-center justify-center p-8 ${
-            prompt ? "pt-24" : ""
+          className={`flex h-full items-center justify-center p-4 sm:p-8 ${
+            prompt ? "pt-16 sm:pt-24" : ""
           }`}
         >
           <div className="text-center">
-            <div className="w-16 h-16 text-red-500 mx-auto mb-4 flex items-center justify-center">
+            <div className="w-12 h-12 sm:w-16 sm:h-16 text-red-500 mx-auto mb-4 flex items-center justify-center">
               <svg
-                className="w-16 h-16"
+                className="w-12 h-12 sm:w-16 sm:h-16"
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
@@ -461,10 +474,10 @@ export default function ImageLoadingCard({
                 />
               </svg>
             </div>
-            <p className="text-red-700 text-lg font-medium mb-2">
+            <p className="text-red-700 text-base sm:text-lg font-medium mb-2">
               Failed to generate image
             </p>
-            <p className="text-red-600 text-sm">
+            <p className="text-red-600 text-xs sm:text-sm">
               {error || "Image failed to load"}
             </p>
           </div>
@@ -477,23 +490,25 @@ export default function ImageLoadingCard({
   if (imageUrl) {
     return (
       <div
-        className={`relative overflow-hidden rounded-2xl shadow-lg border border-gray-200 bg-white ${className}`}
+        className={`relative overflow-hidden rounded-2xl shadow-lg border border-gray-200 bg-white ${className} w-full max-w-full`}
         style={{
-          width: containerDimensions.width,
+          width: '100%',
+          maxWidth: containerDimensions.width,
           height: containerDimensions.height,
-          maxWidth: "100%",
+          minHeight: '200px',
         }}
       >
         {prompt && (
-          <div className="absolute top-0 left-0 right-0 z-20 p-4 bg-gradient-to-r from-green-500 to-emerald-500 text-white rounded-t-2xl">
-            <h3 className="font-semibold text-sm">
+          <div className="absolute top-0 left-0 right-0 z-20 p-3 sm:p-4 bg-gradient-to-r from-green-500 to-emerald-500 text-white rounded-t-2xl">
+            <h3 className="font-semibold text-xs sm:text-sm">
               Image Generated Successfully
             </h3>
-            <p className="text-xs opacity-90 mt-1 line-clamp-2">{prompt}</p>
+            <p className="text-xs opacity-90 mt-1 line-clamp-2 hidden sm:block">{prompt}</p>
+            <p className="text-xs opacity-90 mt-1 line-clamp-1 sm:hidden">{prompt}</p>
           </div>
         )}
 
-        <div className={`relative h-full ${prompt ? "pt-16" : ""}`}>
+        <div className={`relative h-full ${prompt ? "pt-12 sm:pt-16" : ""}`}>
           {/* Main Image Display */}
           <div
             className="relative cursor-pointer group h-full"
@@ -515,7 +530,7 @@ export default function ImageLoadingCard({
             >
               <div className="opacity-0 group-hover:opacity-100 transition-opacity duration-300 text-white text-center">
                 <svg
-                  className="w-12 h-12 mx-auto mb-2"
+                  className="w-8 h-8 sm:w-12 sm:h-12 mx-auto mb-2"
                   fill="none"
                   stroke="currentColor"
                   viewBox="0 0 24 24"
@@ -527,23 +542,23 @@ export default function ImageLoadingCard({
                     d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4"
                   />
                 </svg>
-                <p className="text-sm font-medium">Click to view fullscreen</p>
+                <p className="text-xs sm:text-sm font-medium">Click to view fullscreen</p>
               </div>
             </div>
           </div>
 
           {/* Action Buttons Overlay */}
-          <div className="absolute bottom-4 right-4 flex gap-2">
+          <div className="absolute bottom-2 sm:bottom-4 right-2 sm:right-4 flex gap-2">
             <button
               onClick={(e) => {
                 e.stopPropagation();
                 downloadImage();
               }}
-              className="bg-white/90 backdrop-blur-sm hover:bg-white border border-gray-200 hover:border-gray-300 text-gray-700 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-200 flex items-center gap-2 shadow-lg"
+              className="bg-white/90 backdrop-blur-sm hover:bg-white border border-gray-200 hover:border-gray-300 text-gray-700 px-2 sm:px-3 py-1.5 sm:py-2 rounded-lg text-xs sm:text-sm font-medium transition-all duration-200 flex items-center gap-1.5 sm:gap-2 shadow-lg"
               title="Download image"
             >
               <svg
-                className="w-4 h-4"
+                className="w-3 h-3 sm:w-4 sm:h-4"
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
@@ -555,7 +570,7 @@ export default function ImageLoadingCard({
                   d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
                 />
               </svg>
-              Download
+              <span className="hidden sm:inline">Download</span>
             </button>
           </div>
         </div>
@@ -566,7 +581,7 @@ export default function ImageLoadingCard({
           mounted &&
           createPortal(
             <div
-              className="fixed inset-0 bg-black bg-opacity-95 flex items-center justify-center p-4"
+              className="fixed inset-0 bg-black bg-opacity-95 flex items-center justify-center p-2 sm:p-4"
               style={{
                 zIndex: 999999,
                 position: "fixed",
@@ -601,11 +616,11 @@ export default function ImageLoadingCard({
                     e.stopPropagation();
                     setShowFullscreen(false);
                   }}
-                  className="absolute top-4 right-4 text-white bg-black/50 hover:bg-black/70 p-3 rounded-full transition-colors duration-200 backdrop-blur-sm border border-white/20 z-10"
+                  className="absolute top-2 sm:top-4 right-2 sm:right-4 text-white bg-black/50 hover:bg-black/70 p-2 sm:p-3 rounded-full transition-colors duration-200 backdrop-blur-sm border border-white/20 z-10"
                   title="Close fullscreen (ESC)"
                 >
                   <svg
-                    className="w-6 h-6"
+                    className="w-5 h-5 sm:w-6 sm:h-6"
                     fill="none"
                     stroke="currentColor"
                     viewBox="0 0 24 24"
@@ -621,8 +636,8 @@ export default function ImageLoadingCard({
 
                 {/* Prompt Display */}
                 {prompt && (
-                  <div className="absolute bottom-4 left-4 right-4 bg-black/70 backdrop-blur-sm rounded-lg p-4 text-center max-w-4xl mx-auto">
-                    <p className="text-white text-sm leading-relaxed">
+                  <div className="absolute bottom-2 sm:bottom-4 left-2 sm:left-4 right-2 sm:right-4 bg-black/70 backdrop-blur-sm rounded-lg p-3 sm:p-4 text-center max-w-4xl mx-auto">
+                    <p className="text-white text-xs sm:text-sm leading-relaxed">
                       {prompt}
                     </p>
                   </div>
@@ -634,11 +649,11 @@ export default function ImageLoadingCard({
                     e.stopPropagation();
                     downloadImage();
                   }}
-                  className="absolute top-4 left-4 bg-white/20 backdrop-blur-sm hover:bg-white/30 border border-white/30 text-white px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 flex items-center gap-2"
+                  className="absolute top-2 sm:top-4 left-2 sm:left-4 bg-white/20 backdrop-blur-sm hover:bg-white/30 border border-white/30 text-white px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg text-xs sm:text-sm font-medium transition-all duration-200 flex items-center gap-1.5 sm:gap-2"
                   title="Download image"
                 >
                   <svg
-                    className="w-4 h-4"
+                    className="w-3 h-3 sm:w-4 sm:h-4"
                     fill="none"
                     stroke="currentColor"
                     viewBox="0 0 24 24"
@@ -650,12 +665,13 @@ export default function ImageLoadingCard({
                       d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
                     />
                   </svg>
-                  Download
+                  <span className="hidden sm:inline">Download</span>
                 </button>
 
                 {/* Instructions */}
-                <div className="absolute top-4 left-1/2 transform -translate-x-1/2 bg-black/50 backdrop-blur-sm rounded-lg px-4 py-2 text-white text-sm">
-                  Press ESC or click outside to close
+                <div className="absolute top-2 sm:top-4 left-1/2 transform -translate-x-1/2 bg-black/50 backdrop-blur-sm rounded-lg px-3 sm:px-4 py-1.5 sm:py-2 text-white text-xs sm:text-sm">
+                  <span className="hidden sm:inline">Press ESC or click outside to close</span>
+                  <span className="sm:hidden">Tap outside to close</span>
                 </div>
               </div>
             </div>,
@@ -667,15 +683,16 @@ export default function ImageLoadingCard({
 
   return (
     <div
-      className={`relative overflow-hidden rounded-2xl shadow-lg border border-gray-200 bg-gray-100 ${className}`}
+      className={`relative overflow-hidden rounded-2xl shadow-lg border border-gray-200 bg-gray-100 ${className} w-full max-w-full`}
       style={{
-        width: containerDimensions.width,
+        width: '100%',
+        maxWidth: containerDimensions.width,
         height: containerDimensions.height,
-        maxWidth: "100%",
+        minHeight: '200px',
       }}
     >
       <div className="flex h-full items-center justify-center">
-        <p className="text-gray-500 text-lg">No image generated</p>
+        <p className="text-gray-500 text-base sm:text-lg">No image generated</p>
       </div>
     </div>
   );
