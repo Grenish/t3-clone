@@ -12,7 +12,7 @@ const nextConfig: NextConfig = {
   },
 
   // Turbopack configuration (replaces webpack config when using --turbopack)
-  turbo: {
+  turbopack: {
     rules: {
       '*.svg': {
         loaders: ['@svgr/webpack'],
@@ -37,16 +37,6 @@ const nextConfig: NextConfig = {
       
       // Prevent Supabase modules from being optimized during development
       config.optimization.providedExports = false;
-    }
-
-    // Optimize webpack for better performance
-    if (!dev) {
-      // Freeze webpack cache in production
-      if (config.cache && !dev) {
-        config.cache = Object.freeze({
-          type: 'memory',
-        });
-      }
     }
 
     // Optimize bundle splitting
