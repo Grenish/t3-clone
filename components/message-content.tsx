@@ -2,6 +2,9 @@
 
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
+import remarkMath from "remark-math"
+import rehypeKatex from "rehype-katex"
+import "katex/dist/katex.min.css"
 import { CodeBlock } from "./code-block"
 import { useTheme } from "../util/theme-provider"
 
@@ -16,7 +19,8 @@ export function MessageContent({ content, isUser }: MessageContentProps) {
   return (
     <div className="space-y-3">
       <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
+        remarkPlugins={[remarkMath, remarkGfm]}
+        rehypePlugins={[rehypeKatex]}
         components={{
           code({ inline, className, children, ...props }: any) {
             const match = /language-(\w+)/.exec(className || "")
@@ -154,6 +158,39 @@ export function MessageContent({ content, isUser }: MessageContentProps) {
                 {children}
               </td>
             )
+          },
+          // Math components - handle KaTeX output elements
+          span({ className, children, ...props }) {
+            if (className?.includes("math-inline")) {
+              return (
+                <span
+                  className={`${className} ${
+                    isDarkMode ? "[&_.katex]:text-gray-200" : "[&_.katex]:text-gray-900"
+                  }`}
+                  {...props}
+                >
+                  {children}
+                </span>
+              )
+            }
+            return <span className={className} {...props}>{children}</span>
+          },
+          div({ className, children, ...props }) {
+            if (className?.includes("math-display")) {
+              return (
+                <div
+                  className={`${className} my-4 text-center overflow-x-auto max-w-full ${
+                    isDarkMode ? "[&_.katex]:text-gray-200" : "[&_.katex]:text-gray-900"
+                  }`}
+                  {...props}
+                >
+                  <div className="inline-block min-w-0">
+                    {children}
+                  </div>
+                </div>
+              )
+            }
+            return <div className={className} {...props}>{children}</div>
           },
         }}
       >
