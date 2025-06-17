@@ -169,6 +169,16 @@ VALUES (
   ARRAY['image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'image/gif']
 ) ON CONFLICT (id) DO NOTHING;
 
+-- Create bucket for user documents
+INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+VALUES (
+  'user-documents',
+  'user-documents',
+  true,
+  104857600, -- 100MB limit
+  ARRAY['application/pdf', 'text/plain', 'text/csv', 'application/json', 'text/markdown', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'application/msword']
+) ON CONFLICT (id) DO NOTHING;
+
 -- ========== Storage Policies ==========
 -- Allow authenticated users to upload images
 CREATE POLICY "Authenticated users can upload images" ON storage.objects
@@ -185,6 +195,24 @@ FOR SELECT USING (bucket_id = 'generated-images');
 CREATE POLICY "Users can delete their own images" ON storage.objects
 FOR DELETE USING (
   bucket_id = 'generated-images' 
+  AND auth.role() = 'authenticated'
+);
+
+-- Allow authenticated users to upload documents
+CREATE POLICY "Authenticated users can upload documents" ON storage.objects
+FOR INSERT WITH CHECK (
+  bucket_id = 'user-documents' 
+  AND auth.role() = 'authenticated'
+);
+
+-- Allow public read access to documents (for AI processing)
+CREATE POLICY "Public read access for user documents" ON storage.objects
+FOR SELECT USING (bucket_id = 'user-documents');
+
+-- Allow users to delete their own documents
+CREATE POLICY "Users can delete their own documents" ON storage.objects
+FOR DELETE USING (
+  bucket_id = 'user-documents' 
   AND auth.role() = 'authenticated'
 );
 
