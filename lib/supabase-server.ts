@@ -2,17 +2,11 @@ import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { NextRequest } from 'next/server';
 
-// Add cache for server client to improve performance
-let supabaseServerClientCache: any = null;
-
 // Creates a Supabase client for server-side usage
 export async function createServerSupabaseClient(request?: NextRequest) {
-  if (supabaseServerClientCache) {
-    return supabaseServerClientCache;
-  }
-
+  // Always create a fresh client to avoid authentication issues
   if (request) {
-    supabaseServerClientCache = createServerClient(
+    return createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
       {
@@ -21,14 +15,14 @@ export async function createServerSupabaseClient(request?: NextRequest) {
             return request.cookies.getAll();
           },
           setAll(cookiesToSet) {
-            // Can't set cookies on API routes, but we can read them
+            // Can't set cookies in API routes, but we can read them
           },
         },
       }
     );
   } else {
     const cookieStore = await cookies();
-    supabaseServerClientCache = createServerClient(
+    return createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
       {
@@ -49,16 +43,10 @@ export async function createServerSupabaseClient(request?: NextRequest) {
       }
     );
   }
-
-  return supabaseServerClientCache;
 }
 
 // Validates user authentication or throws an error
 export async function requireAuth() {
-  // Add a small delay to ensure cookies are properly propagated
-  // This helps prevent race conditions in the authentication flow
-  await new Promise((resolve) => setTimeout(resolve, 100));
-
   const supabase = await createServerSupabaseClient();
   const {
     data: { user },
