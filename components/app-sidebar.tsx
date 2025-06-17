@@ -19,14 +19,7 @@ import {
   Sidebar,
   SidebarContent,
   SidebarFooter,
-  SidebarGroup,
-  SidebarGroupContent,
-  SidebarGroupLabel,
   SidebarHeader,
-  SidebarMenu,
-  SidebarMenuAction,
-  SidebarMenuButton,
-  SidebarMenuItem,
 } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -39,9 +32,11 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useConversations } from "@/hooks/use-conversations";
+import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
 
 export function AppSidebar() {
   const [searchQuery, setSearchQuery] = React.useState("");
+  const [realtimeStatus, setRealtimeStatus] = React.useState<'connecting' | 'connected' | 'disconnected'>('connecting');
   const router = useRouter();
   const {
     conversations,
@@ -51,39 +46,96 @@ export function AppSidebar() {
     deleteConversation,
     refreshConversations,
     isAuthenticated,
+    setConversations,
+    addConversation,
+    updateConversation,
+    removeConversation,
   } = useConversations();
+  
+  // Create Supabase client for realtime subscriptions
+  const supabase = React.useMemo(() => createClientComponentClient(), []);
 
-  const filteredHistory = conversations.filter((chat) =>
-    chat.title.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const filteredHistory = React.useMemo(() => 
+    conversations.filter((chat) =>
+      chat.title.toLowerCase().includes(searchQuery.toLowerCase())
+    ), [conversations, searchQuery]);
 
-  // Add real-time conversation updates listener
+  // FIXED: Stable realtime subscription setup with useCallback
+  const setupRealtimeSubscription = React.useCallback(() => {
+    if (!isAuthenticated) {
+      setRealtimeStatus('disconnected');
+      return null;
+    }
+    
+    setRealtimeStatus('connecting');
+    
+    // Subscribe to conversation changes in realtime
+    const conversationChannel = supabase
+      .channel('conversations_channel')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'conversations',
+        },
+        (payload) => {
+          console.log('🔄 Realtime conversation change:', payload);
+          
+          if (payload.eventType === 'INSERT') {
+            const newConversation = payload.new as any;
+            addConversation(newConversation);
+          } else if (payload.eventType === 'UPDATE') {
+            const updatedConversation = payload.new as any;
+            updateConversation(updatedConversation.id, updatedConversation);
+          } else if (payload.eventType === 'DELETE') {
+            const deletedConversation = payload.old as any;
+            removeConversation(deletedConversation.id);
+          }
+        }
+      )
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED') {
+          setRealtimeStatus('connected');
+          console.log('🟢 Sidebar subscribed to realtime updates');
+        } else if (status === 'CHANNEL_ERROR') {
+          setRealtimeStatus('disconnected');
+          console.log('🔴 Sidebar realtime subscription error');
+        }
+      });
+    
+    return conversationChannel;
+  }, [isAuthenticated, supabase, addConversation, updateConversation, removeConversation]);
+
+  // Set up Supabase realtime subscriptions
   React.useEffect(() => {
-    // Listen for conversation updates from chat pages
-    const handleConversationUpdate = (event: CustomEvent) => {
-      const { id, title } = event.detail;
-      console.log('Sidebar received conversation update:', { id, title });
-      
-      // Only refresh if we have a valid UUID (not temp ID)
-      if (id && typeof id === 'string' && !id.startsWith('temp-')) {
-        refreshConversations();
+    const channel = setupRealtimeSubscription();
+    
+    // Clean up subscription on unmount
+    return () => {
+      if (channel) {
+        console.log('🧹 Cleaning up sidebar realtime subscription');
+        supabase.removeChannel(channel);
+        setRealtimeStatus('disconnected');
       }
     };
+  }, [setupRealtimeSubscription, supabase]);
 
-    // Listen for new conversations being created
-    const handleNewConversation = (event: CustomEvent) => {
-      const { id } = event.detail;
-      console.log('Sidebar received new conversation event:', id);
-      
-      // Only refresh if we have a valid UUID and enough time has passed
-      if (id && typeof id === 'string' && !id.startsWith('temp-')) {
-        // Small delay to ensure the conversation is saved in the database
-        setTimeout(() => {
-          refreshConversations();
-        }, 1000); // Increased delay to prevent race conditions
-      }
-    };
+  // FIXED: Stable event handlers using useCallback
+  const handleConversationUpdate = React.useCallback((event: CustomEvent) => {
+    const { id, title } = event.detail;
+    console.log('📻 Legacy conversation update event:', { id, title });
+    updateConversation(id, { title });
+  }, [updateConversation]);
 
+  const handleNewConversation = React.useCallback((event: CustomEvent) => {
+    const conversation = event.detail;
+    console.log('📻 Legacy new conversation event:', conversation);
+    addConversation(conversation);
+  }, [addConversation]);
+
+  // Legacy event listener for backward compatibility with chat pages
+  React.useEffect(() => {
     if (typeof window !== 'undefined') {
       window.addEventListener('conversationUpdated', handleConversationUpdate as EventListener);
       window.addEventListener('newConversationCreated', handleNewConversation as EventListener);
@@ -95,19 +147,51 @@ export function AppSidebar() {
         window.removeEventListener('newConversationCreated', handleNewConversation as EventListener);
       }
     };
-  }, [refreshConversations]);
+  }, [handleConversationUpdate, handleNewConversation]);
 
-  // Auto-refresh conversations periodically when authenticated
+  // FIXED: Simplified fallback polling - only when needed
   React.useEffect(() => {
     if (!isAuthenticated) return;
 
-    // Refresh every 30 seconds for active updates
+    // Fallback refresh every 2 minutes (120000ms) ONLY when realtime is disconnected
     const interval = setInterval(() => {
-      refreshConversations();
-    }, 30000);
+      if (realtimeStatus === 'disconnected') {
+        console.log('⚠️ Realtime disconnected, falling back to polling');
+        refreshConversations();
+      }
+    }, 120000); // 2 minutes
 
     return () => clearInterval(interval);
-  }, [isAuthenticated, refreshConversations]);
+  }, [isAuthenticated, realtimeStatus, refreshConversations]);
+
+  // FIXED: Stable handlers using useCallback
+  const handleRefresh = React.useCallback(() => {
+    console.log('🔄 Manual refresh requested');
+    refreshConversations();
+  }, [refreshConversations]);
+
+  const handleDeleteConversation = React.useCallback(async (conversationId: string) => {
+    try {
+      await deleteConversation(conversationId);
+      console.log('✅ Successfully deleted conversation:', conversationId);
+    } catch (error) {
+      console.error('❌ Failed to delete conversation:', error);
+    }
+  }, [deleteConversation]);
+
+  const handleCreateNewConversation = React.useCallback(async () => {
+    if (!isAuthenticated) {
+      router.push('/login');
+      return;
+    }
+
+    try {
+      const newConversation = await createConversation('New Chat');
+      router.push(`/c/${newConversation.id}`);
+    } catch (error) {
+      console.error('Failed to create new conversation:', error);
+    }
+  }, [isAuthenticated, createConversation, router]);
 
   // Optimized conversation grouping with memoization
   const groupedConversations = React.useMemo(() => {
@@ -181,11 +265,6 @@ export function AppSidebar() {
       }
     }
   };
-
-  const handleRefresh = React.useCallback(() => {
-    console.log("Manually refreshing conversations...");
-    refreshConversations();
-  }, [refreshConversations]);
 
   // Memoized ConversationGroup component for better performance
   const ConversationGroup = React.memo(({ title, conversations, icon: Icon }: { 
@@ -391,6 +470,21 @@ export function AppSidebar() {
                       <span className="text-xs font-medium text-sidebar-foreground/70">
                         History
                       </span>
+                      {/* Realtime status indicator */}
+                      <div className="ml-1.5 flex items-center" title={`Realtime ${realtimeStatus}`}>
+                        {realtimeStatus === 'connected' && (
+                          <span className="relative flex h-2 w-2">
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                            <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+                          </span>
+                        )}
+                        {realtimeStatus === 'connecting' && (
+                          <div className="w-2 h-2 rounded-full bg-yellow-500 animate-pulse"></div>
+                        )}
+                        {realtimeStatus === 'disconnected' && (
+                          <div className="w-2 h-2 rounded-full bg-red-500"></div>
+                        )}
+                      </div>
                     </div>
                     <Button
                       onClick={handleRefresh}
