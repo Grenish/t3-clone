@@ -27,6 +27,7 @@ interface ThemeProviderProps {
 export function ThemeProvider({ children }: ThemeProviderProps) {
   const [theme, setTheme] = useState<Theme>('system');
   const [isDarkMode, setIsDarkMode] = useState(false);
+  const [isInitialized, setIsInitialized] = useState(false);
 
   const applyTheme = (theme: Theme) => {
     const root = document.documentElement;
@@ -59,6 +60,7 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
     setIsDarkMode(shouldBeDark);
   };
 
+  // Initial theme loading effect - runs only once
   useEffect(() => {
     // Load saved theme from localStorage
     const savedTheme = localStorage.getItem('theme') as Theme;
@@ -68,8 +70,13 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
     } else {
       applyTheme('system');
     }
+    setIsInitialized(true);
+  }, []); // ✅ Empty dependency array - runs only once
 
-    // Listen for system theme changes
+  // System theme change listener - runs when theme changes
+  useEffect(() => {
+    if (!isInitialized) return;
+
     const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
     const handleChange = () => {
       if (theme === 'system') {
@@ -79,13 +86,18 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
 
     mediaQuery.addEventListener('change', handleChange);
     return () => mediaQuery.removeEventListener('change', handleChange);
-  }, [theme]);
+  }, [theme, isInitialized]); // ✅ Only depends on theme for system theme updates
 
   const handleSetTheme = (newTheme: Theme) => {
     setTheme(newTheme);
     applyTheme(newTheme);
     localStorage.setItem('theme', newTheme);
   };
+
+  // Don't render children until theme is initialized
+  if (!isInitialized) {
+    return null;
+  }
 
   return (
     <ThemeContext.Provider value={{ theme, setTheme: handleSetTheme, isDarkMode }}>
