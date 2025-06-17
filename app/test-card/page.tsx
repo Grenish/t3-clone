@@ -3,9 +3,11 @@
 import ImageLoadingCard from "@/components/cards/image-loading-card";
 import MediaRecommendationCard from "@/components/cards/media-recommendation-card";
 import ProductCard from "@/components/cards/product-card";
+import SavedCard from "@/components/cards/saved-card";
 import StockCard from "@/components/cards/stock-card";
 import { WeatherCard } from "@/components/cards/weather-card";
 import ThemeSwitch from "@/components/theme-switch";
+import ThinkingDisplay from "@/components/thinking-display";
 
 export default function TestCard() {
   const sampleWeatherData = {
@@ -91,6 +93,20 @@ export default function TestCard() {
         </div>
         <div className="border border-gray-300 rounded-lg p-6 flex items-center justify-center">
           <ThemeSwitch />
+        </div>
+        <div className="border border-gray-300 rounded-lg p-6 flex items-center justify-center">
+          <SavedCard
+            message="The user like building things"
+            memoryType="preference"
+            memoryKey=""
+            memoryValue=""
+          />
+        </div>
+        <div className="border border-gray-300 rounded-lg p-6 flex items-center justify-center">
+          <ThinkingDisplay
+            thinking="I think the user is interested in technology and travel."
+            isStreaming={false}
+          />
         </div>
       </div>
     </div>
