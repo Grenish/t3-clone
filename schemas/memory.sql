@@ -22,3 +22,8 @@ create trigger update_user_memory_updated_at_trigger
 before update on user_memory
 for each row
 execute procedure update_user_memory_updated_at();
+
+alter table user_memory enable row level security;
+
+create policy "Users can delete their own memory" on user_memory
+for delete using (auth.uid() = user_id);
