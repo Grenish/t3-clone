@@ -2,6 +2,11 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   webpack: (config: any, { dev }: { dev: boolean }) => {
+    // Fix webpack cache issues in Next.js 15
+    config.cache = {
+      type: 'memory',
+    };
+    
     // Only apply essential fixes
     if (dev) {
       config.resolve.alias = {
