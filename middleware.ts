@@ -29,10 +29,9 @@ export async function middleware(req: NextRequest) {
     
     // Handle API route authentication
     if (req.nextUrl.pathname.startsWith('/api/')) {
-        // Expanded list of protected API routes
+        // Updated list of protected API routes (removed /api/chat)
         const protectedApiRoutes = [
             '/api/conversations', 
-            '/api/chat',
             '/api/user/preferences',
             '/api/user/history',
             '/api/user/account',
@@ -66,6 +65,24 @@ export async function middleware(req: NextRequest) {
                 }
             })
         }
+        
+        // For chat API, add user info to headers if authenticated (but don't require it)
+        if (req.nextUrl.pathname.startsWith('/api/chat')) {
+            const requestHeaders = new Headers(req.headers)
+            if (user) {
+                requestHeaders.set('x-user-id', user.id)
+                requestHeaders.set('x-user-email', user.email || '')
+                requestHeaders.set('x-user-authenticated', 'true')
+            } else {
+                requestHeaders.set('x-user-authenticated', 'false')
+            }
+            
+            return NextResponse.next({
+                request: {
+                    headers: requestHeaders,
+                }
+            })
+        }
     }
     
     // For auth pages, redirect authenticated users to home
@@ -74,7 +91,7 @@ export async function middleware(req: NextRequest) {
             return NextResponse.redirect(new URL('/', req.url))
         }
     }
-    
+
     return res
 }
 
