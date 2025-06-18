@@ -28,8 +28,38 @@ const pendingConversationRequests = new Map<string, Promise<string>>();
 const userPreferencesCache = new Map<string, { data: any; timestamp: number }>();
 const PREFERENCES_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
-// Optimized user preferences fetching with caching
-async function getUserPreferences(userId: string, supabase: any) {
+// Create optional authentication helper
+async function getOptionalAuth(req: Request): Promise<{ user: any | null; userId: string | null; isAuthenticated: boolean }> {
+  try {
+    // Check if user is authenticated via headers set by middleware
+    const isAuthenticated = req.headers.get('x-user-authenticated') === 'true';
+    const userId = req.headers.get('x-user-id');
+    
+    if (isAuthenticated && userId) {
+      // For authenticated users, get full user object
+      const supabase = await createServerSupabaseClient();
+      const { data: { user }, error } = await supabase.auth.getUser();
+      
+      if (!error && user) {
+        return { user, userId: user.id, isAuthenticated: true };
+      }
+    }
+    
+    // Return guest user info
+    return { user: null, userId: null, isAuthenticated: false };
+  } catch (error) {
+    // If authentication fails, treat as guest
+    return { user: null, userId: null, isAuthenticated: false };
+  }
+}
+
+// Optimized user preferences fetching with caching (now handles guest users)
+async function getUserPreferences(userId: string | null, supabase: any) {
+  if (!userId) {
+    // Return null for guest users (no personalization)
+    return null;
+  }
+
   const cacheKey = `prefs_${userId}`;
   const cached = userPreferencesCache.get(cacheKey);
   
@@ -180,117 +210,122 @@ export async function POST(req: Request) {
         const { messages, persona, conversationId, modelId, files, webSearchEnabled = false } = await req.json()
         const apiKey = req.headers.get("x-api-key")
 
-        // Require authentication for API access
-        const user = await requireAuth();
-        const userId = user.id;
+        // Use optional authentication - allow both authenticated and guest users
+        const { user, userId, isAuthenticated } = await getOptionalAuth(req);
 
-        // Use centralized Supabase client creation
-        const supabase = await createServerSupabaseClient();
+        // Use centralized Supabase client creation only for authenticated users
+        let supabase: any = null;
+        if (isAuthenticated) {
+            supabase = await createServerSupabaseClient();
+        }
         
-        // Fetch user preferences with caching
+        // Fetch user preferences with caching (null for guest users)
         const userPreferences = await getUserPreferences(userId, supabase);
 
         // Initialize conversationId tracking
         let validConversationId: string | null = null;
         
-        // Check if conversationId is provided and valid
-        if (conversationId && typeof conversationId === 'string' && conversationId.trim()) {
-            const trimmedId = conversationId.trim();
-            
-            // Skip temp IDs
-            if (trimmedId.startsWith('temp-')) {
+        // Only handle conversation management for authenticated users
+        if (isAuthenticated && userId && supabase) {
+            // Check if conversationId is provided and valid
+            if (conversationId && typeof conversationId === 'string' && conversationId.trim()) {
+                const trimmedId = conversationId.trim();
+                
                 // Skip temp IDs
-            } else {
-                // Validate UUID format
-                const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-                if (uuidRegex.test(trimmedId)) {
-                    // Verify the conversation exists and belongs to the user
-                    try {
-                        const { data: conversation, error } = await supabase
-                            .from('conversations')
-                            .select('id')
-                            .eq('id', trimmedId)
-                            .eq('user_id', userId)
-                            .single();
-                        
-                        if (!error && conversation) {
-                            validConversationId = trimmedId;
-                        }
-                    } catch (dbError) {
-                        // Handle silently
-                    }
-                }
-            }
-        }
-        
-        // If no valid conversation ID exists, create a new one ONLY ONCE per chat session
-        if (!validConversationId) {
-            try {
-                // Get first user message for title
-                const firstUserMsg = messages.find((m: any) => m.role === 'user');
-                const title = firstUserMsg 
-                    ? firstUserMsg.content.substring(0, 100) 
-                    : 'New Chat';
-                
-                // FIXED: Use request deduplication to prevent multiple simultaneous conversation creation
-                const deduplicationKey = `${userId}-${title}`;
-                
-                // Check if there's already a pending request for this exact conversation
-                if (pendingConversationRequests.has(deduplicationKey)) {
-                    validConversationId = await pendingConversationRequests.get(deduplicationKey)!;
+                if (trimmedId.startsWith('temp-')) {
+                    // Skip temp IDs
                 } else {
-                    // Create a new promise for this conversation creation
-                    const createConversationPromise = (async (): Promise<string> => {
-                        // Check if conversation already exists with this exact title recently
-                        const recentTime = new Date(Date.now() - 10000).toISOString(); // 10 seconds ago
-                        const { data: existingConversations, error: checkError } = await supabase
-                            .from('conversations')
-                            .select('id')
-                            .eq('user_id', userId)
-                            .eq('title', title)
-                            .gte('created_at', recentTime);
-
-                        if (!checkError && existingConversations && existingConversations.length > 0) {
-                            // Use existing conversation instead of creating a new one
-                            const existingId = existingConversations[0].id;
-                            return existingId;
-                        } else {
-                            // Create new conversation only if no recent duplicate exists
-                            const { data: newConversation, error } = await supabase
+                    // Validate UUID format
+                    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+                    if (uuidRegex.test(trimmedId)) {
+                        // Verify the conversation exists and belongs to the user
+                        try {
+                            const { data: conversation, error } = await supabase
                                 .from('conversations')
-                                .insert({
-                                    user_id: userId,
-                                    title: title
-                                })
-                                .select()
+                                .select('id')
+                                .eq('id', trimmedId)
+                                .eq('user_id', userId)
                                 .single();
-                            
-                            if (error) {
-                                throw new Error('Failed to create conversation');
-                            } else {
-                                return newConversation.id;
+                        
+                            if (!error && conversation) {
+                                validConversationId = trimmedId;
                             }
+                        } catch (dbError) {
+                            // Handle silently
                         }
-                    })();
-                    
-                    // Store the promise in the map
-                    pendingConversationRequests.set(deduplicationKey, createConversationPromise);
-                    
-                    try {
-                        validConversationId = await createConversationPromise;
-                    } finally {
-                        // Clean up the pending request after 30 seconds
-                        setTimeout(() => {
-                            pendingConversationRequests.delete(deduplicationKey);
-                        }, 30000);
                     }
                 }
-            } catch (createError) {
-                // Continue without saving to DB
+            }
+            
+            // If no valid conversation ID exists, create a new one ONLY ONCE per chat session
+            if (!validConversationId) {
+                try {
+                    // Get first user message for title
+                    const firstUserMsg = messages.find((m: any) => m.role === 'user');
+                    const title = firstUserMsg 
+                        ? firstUserMsg.content.substring(0, 100) 
+                        : 'New Chat';
+                    
+                    // FIXED: Use request deduplication to prevent multiple simultaneous conversation creation
+                    const deduplicationKey = `${userId}-${title}`;
+                    
+                    // Check if there's already a pending request for this exact conversation
+                    if (pendingConversationRequests.has(deduplicationKey)) {
+                        validConversationId = await pendingConversationRequests.get(deduplicationKey)!;
+                    } else {
+                        // Create a new promise for this conversation creation
+                        const createConversationPromise = (async (): Promise<string> => {
+                            // Check if conversation already exists with this exact title recently
+                            const recentTime = new Date(Date.now() - 10000).toISOString(); // 10 seconds ago
+                            const { data: existingConversations, error: checkError } = await supabase
+                                .from('conversations')
+                                .select('id')
+                                .eq('user_id', userId)
+                                .eq('title', title)
+                                .gte('created_at', recentTime);
+
+                            if (!checkError && existingConversations && existingConversations.length > 0) {
+                                // Use existing conversation instead of creating a new one
+                                const existingId = existingConversations[0].id;
+                                return existingId;
+                            } else {
+                                // Create new conversation only if no recent duplicate exists
+                                const { data: newConversation, error } = await supabase
+                                    .from('conversations')
+                                    .insert({
+                                        user_id: userId,
+                                        title: title
+                                    })
+                                    .select()
+                                    .single();
+                                
+                                if (error) {
+                                    throw new Error('Failed to create conversation');
+                                } else {
+                                    return newConversation.id;
+                                }
+                            }
+                        })();
+                        
+                        // Store the promise in the map
+                        pendingConversationRequests.set(deduplicationKey, createConversationPromise);
+                        
+                        try {
+                            validConversationId = await createConversationPromise;
+                        } finally {
+                            // Clean up the pending request after 30 seconds
+                            setTimeout(() => {
+                                pendingConversationRequests.delete(deduplicationKey);
+                            }, 30000);
+                        }
+                    }
+                } catch (createError) {
+                    // Continue without saving to DB
+                }
             }
         }
 
-        // Process files if they exist
+        // Process files if they exist (skip file upload for guest users)
         let processedMessages = messages;
         let uploadedDocuments: any[] = [];
         
@@ -327,39 +362,47 @@ export async function POST(req: Request) {
                                 image: buffer,
                             });
                         } else if (file.type === 'application/pdf') {
-                            // Upload PDF and use public URL for AI to access
-                            const { publicUrl, error: uploadError, documentId } = await uploadFileToStorage(
-                                file.data, 
-                                file.type, 
-                                file.name, 
-                                userId, 
-                                supabase
-                            );
-                            
-                            if (publicUrl && !uploadError) {
-                                // For PDFs, we need to use the file approach with public URL
-                                const response = await fetch(publicUrl);
-                                const arrayBuffer = await response.arrayBuffer();
-                                const pdfBuffer = Buffer.from(arrayBuffer);
+                            // For authenticated users, upload PDF and use public URL
+                            if (isAuthenticated && userId && supabase) {
+                                const { publicUrl, error: uploadError, documentId } = await uploadFileToStorage(
+                                    file.data, 
+                                    file.type, 
+                                    file.name, 
+                                    userId, 
+                                    supabase
+                                );
                                 
-                                contentParts.push({
-                                    type: 'file',
-                                    mimeType: file.type,
-                                    data: pdfBuffer,
-                                    filename: file.name,
-                                });
-                                
-                                uploadedDocuments.push({
-                                    filename: file.name,
-                                    mimeType: file.type,
-                                    size: file.size,
-                                    documentUrl: publicUrl,
-                                    documentId: documentId
-                                });
+                                if (publicUrl && !uploadError) {
+                                    // For PDFs, we need to use the file approach with public URL
+                                    const response = await fetch(publicUrl);
+                                    const arrayBuffer = await response.arrayBuffer();
+                                    const pdfBuffer = Buffer.from(arrayBuffer);
+                                    
+                                    contentParts.push({
+                                        type: 'file',
+                                        mimeType: file.type,
+                                        data: pdfBuffer,
+                                        filename: file.name,
+                                    });
+                                    
+                                    uploadedDocuments.push({
+                                        filename: file.name,
+                                        mimeType: file.type,
+                                        size: file.size,
+                                        documentUrl: publicUrl,
+                                        documentId: documentId
+                                    });
+                                } else {
+                                    contentParts.push({
+                                        type: 'text',
+                                        text: `[Error uploading file: ${file.name}]`
+                                    });
+                                }
                             } else {
+                                // For guest users, skip PDF upload but still try to process
                                 contentParts.push({
                                     type: 'text',
-                                    text: `[Error uploading file: ${file.name}]`
+                                    text: `[PDF file: ${file.name} - File upload not available for guest users]`
                                 });
                             }
                         } else if (file.type.startsWith('text/') || 
@@ -378,58 +421,63 @@ export async function POST(req: Request) {
                                 text: `File: ${file.name}\n\nContent:\n${textContent}`
                             });
                             
-                            // Also upload text files to storage for database record
-                            const { publicUrl, documentId } = await uploadFileToStorage(
-                                file.data, 
-                                file.type, 
-                                file.name, 
-                                userId, 
-                                supabase
-                            );
-                            
-                            if (publicUrl) {
-                                uploadedDocuments.push({
-                                    filename: file.name,
-                                    mimeType: file.type,
-                                    size: file.size,
-                                    documentUrl: publicUrl,
-                                    documentId: documentId
-                                });
-                            }
-                            
-                            contentParts.push({
-                                type: 'text',
-                                text: `File: ${file.name}\n\nContent:\n${textContent}`
-                            });
-                        } else {
-                            // For other supported file types, upload and try to send to AI
-                            const { publicUrl, error: uploadError, documentId } = await uploadFileToStorage(
-                                file.data, 
-                                file.type, 
-                                file.name, 
-                                userId, 
-                                supabase
-                            );
-                            
-                            if (publicUrl && !uploadError) {
-                                contentParts.push({
-                                    type: 'file',
-                                    mimeType: file.type,
-                                    data: buffer,
-                                    filename: file.name,
-                                });
+                            // Also upload text files to storage for authenticated users
+                            if (isAuthenticated && userId && supabase) {
+                                const { publicUrl, documentId } = await uploadFileToStorage(
+                                    file.data, 
+                                    file.type, 
+                                    file.name, 
+                                    userId, 
+                                    supabase
+                                );
                                 
-                                uploadedDocuments.push({
-                                    filename: file.name,
-                                    mimeType: file.type,
-                                    size: file.size,
-                                    documentUrl: publicUrl,
-                                    documentId: documentId
-                                });
+                                if (publicUrl) {
+                                    uploadedDocuments.push({
+                                        filename: file.name,
+                                        mimeType: file.type,
+                                        size: file.size,
+                                        documentUrl: publicUrl,
+                                        documentId: documentId
+                                    });
+                                }
+                            }
+                        } else {
+                            // For other supported file types, upload for authenticated users only
+                            if (isAuthenticated && userId && supabase) {
+                                const { publicUrl, error: uploadError, documentId } = await uploadFileToStorage(
+                                    file.data, 
+                                    file.type, 
+                                    file.name, 
+                                    userId, 
+                                    supabase
+                                );
+                                
+                                if (publicUrl && !uploadError) {
+                                    contentParts.push({
+                                        type: 'file',
+                                        mimeType: file.type,
+                                        data: buffer,
+                                        filename: file.name,
+                                    });
+                                    
+                                    uploadedDocuments.push({
+                                        filename: file.name,
+                                        mimeType: file.type,
+                                        size: file.size,
+                                        documentUrl: publicUrl,
+                                        documentId: documentId
+                                    });
+                                } else {
+                                    contentParts.push({
+                                        type: 'text',
+                                        text: `[Error uploading file: ${file.name}]`
+                                    });
+                                }
                             } else {
+                                // For guest users, show message about file upload limitation
                                 contentParts.push({
                                     type: 'text',
-                                    text: `[Error uploading file: ${file.name}]`
+                                    text: `[File: ${file.name} - File upload not available for guest users. Sign in to upload files.]`
                                 });
                             }
                         }
@@ -450,11 +498,11 @@ export async function POST(req: Request) {
             }
         }
 
-        // Get the latest user message to save to database
+        // Get the latest user message to save to database (only for authenticated users)
         const latestUserMessage = processedMessages[processedMessages.length - 1];
         let savedMessageId: string | null = null;
         
-        if (latestUserMessage && latestUserMessage.role === 'user' && validConversationId) {
+        if (latestUserMessage && latestUserMessage.role === 'user' && validConversationId && isAuthenticated && supabase) {
             try {
                 let contentToSave = '';
                 let messageMetadata: any = null;
@@ -516,7 +564,7 @@ export async function POST(req: Request) {
                     }
                 }
             } catch (saveError) {
-                // Handle silently
+                // Handle silently - don't fail the chat for DB errors
             }
         } else if (latestUserMessage && latestUserMessage.role === 'user') {
             // Do not save empty or invalid messages
@@ -555,8 +603,17 @@ export async function POST(req: Request) {
                     }),
                     execute: async (params) => {
                         try {
+                            // Only save memories for authenticated users
+                            if (!isAuthenticated || !userId || !supabase) {
+                                return {
+                                    success: false,
+                                    error: "Memory saving is only available for signed-in users",
+                                    key: params.key,
+                                    value: params.value,
+                                };
+                            }
+
                             const user = await requireAuth();
-                            const supabase = await createServerSupabaseClient();
                             
                             // Save the memory value as provided by the AI, without forced formatting
                             // The AI can decide how to best phrase and contextualize the memory
@@ -1036,8 +1093,8 @@ export async function POST(req: Request) {
                 // Calculate response time
                 const responseTime = Date.now() - startTime;
 
-                // Save assistant response with tool results, thinking, and metrics
-                if (validConversationId) {
+                // Save assistant response with tool results, thinking, and metrics (only for authenticated users)
+                if (validConversationId && isAuthenticated && supabase) {
                     try {
                         // Extract tool invocations and their results
                         const toolResults = result.toolResults?.map(toolResult => ({
@@ -1131,10 +1188,10 @@ export async function POST(req: Request) {
                             }
                         }
                     } catch (saveError) {
-                        // Handle silently
+                        // Handle silently - don't fail the chat for DB errors
                     }
                 } else {
-                    // No valid conversation ID - assistant response will not be saved to database
+                    // No valid conversation ID or unauthenticated - assistant response will not be saved to database
                 }
             }
         });
@@ -1144,6 +1201,7 @@ export async function POST(req: Request) {
             'Cache-Control': 'no-cache, no-store, must-revalidate',
             'Pragma': 'no-cache',
             'Expires': '0',
+            'X-User-Authenticated': isAuthenticated ? 'true' : 'false',
         };
 
         if (validConversationId) {
@@ -1152,13 +1210,7 @@ export async function POST(req: Request) {
 
         return result.toDataStreamResponse({ headers });
     } catch (error) {
-        if (error instanceof Error && error.message === 'Authentication required') {
-            return new Response(
-                JSON.stringify({ error: 'Authentication required' }),
-                { status: 401, headers: { "Content-Type": "application/json" } }
-            );
-        }
-        
+        // Remove authentication requirement from error handling
         return new Response(
             JSON.stringify({
                 error: "Internal server error",
