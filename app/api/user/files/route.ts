@@ -1,13 +1,11 @@
 import { createServerSupabaseClient, requireAuth } from '@/lib/supabase-server';
 import { NextRequest, NextResponse } from 'next/server';
 
-// GET - Fetch user files
 export async function GET(req: NextRequest) {
   try {
     const user = await requireAuth();
     const supabase = await createServerSupabaseClient(req);
-    
-    // Fetch all files associated with the user's messages
+
     const { data: files, error } = await supabase
       .from('message_documents')
       .select(`
@@ -31,27 +29,27 @@ export async function GET(req: NextRequest) {
     if (error) {
       console.error('Files fetch error:', error);
       return NextResponse.json(
-        { error: 'Failed to fetch files' }, 
+        { error: 'Failed to fetch files' },
         { status: 500 }
       );
     }
 
-    return NextResponse.json({ 
+    return NextResponse.json({
       files: files || [],
       total_count: files?.length || 0
     });
-    
+
   } catch (error) {
     if (error instanceof Error && error.message === 'Authentication required') {
       return NextResponse.json(
-        { error: 'Authentication required' }, 
+        { error: 'Authentication required' },
         { status: 401 }
       );
     }
-    
+
     console.error('Files GET error:', error);
     return NextResponse.json(
-      { error: 'Internal server error' }, 
+      { error: 'Internal server error' },
       { status: 500 }
     );
   }
