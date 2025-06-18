@@ -1,7 +1,6 @@
 "use client";
 
 import { Limiter } from "@/components/limiter";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import ThemeSwitch from "@/components/theme-switch";
 import LayoutSwitch from "@/components/layout-switch";
 import ImageGallery from "@/components/image-gallery";
@@ -26,6 +25,25 @@ import {
   CheckCircle,
   XCircle,
   FileText,
+  Shield,
+  Crown,
+  Star,
+  Download,
+  Trash2,
+  Mail,
+  MessageSquare,
+  Palette,
+  Database,
+  Key,
+  Image,
+  ExternalLink,
+  Brain,
+  ChevronRight,
+  CreditCard,
+  Bell,
+  Lock,
+  HelpCircle,
+  History,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
@@ -50,7 +68,6 @@ export default function SettingsPage() {
   const router = useRouter();
   const { user, loading: authLoading } = useAuth();
 
-  // Form state
   const [userName, setUserName] = useState("");
   const [userOccupation, setUserOccupation] = useState("");
   const [traitInput, setTraitInput] = useState("");
@@ -64,7 +81,6 @@ export default function SettingsPage() {
     openrouter: "",
   });
 
-  // UI state
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -73,13 +89,96 @@ export default function SettingsPage() {
   );
   const [loadingPreferences, setLoadingPreferences] = useState(true);
 
-  // Files state
   const [userImages, setUserImages] = useState<any[]>([]);
   const [loadingImages, setLoadingImages] = useState(true);
   const [imagesStats, setImagesStats] = useState({
     total_images: 0,
     total_size_mb: 0,
   });
+
+  // Memory state
+  const [userMemory, setUserMemory] = useState<any[]>([]);
+  const [loadingMemory, setLoadingMemory] = useState(true);
+
+  // Navigation state
+  const [activeSection, setActiveSection] = useState("account");
+
+  // Constants for the UI
+  const upgradeBenefits = [
+    {
+      icon: Zap,
+      title: "Unlimited Messages",
+      description: "Chat without any daily or monthly limits",
+    },
+    {
+      icon: TrendingUp,
+      title: "Advanced AI Models",
+      description: "Access to GPT-4, Claude, and other premium models",
+    },
+    {
+      icon: Headphones,
+      title: "Priority Support",
+      description: "Get help faster with dedicated premium support",
+    },
+  ];
+
+  const suggestedTraits = [
+    "Friendly",
+    "Professional",
+    "Helpful",
+    "Concise",
+    "Detailed",
+    "Creative",
+    "Analytical",
+    "Empathetic",
+    "Direct",
+    "Patient",
+    "Encouraging",
+    "Humorous",
+  ];
+
+  const apiProviders = [
+    {
+      id: "openai",
+      name: "OpenAI",
+      icon: "🤖",
+      description: "GPT-4, GPT-3.5, DALL-E, and other OpenAI models",
+      placeholder: "sk-...",
+      website: "https://platform.openai.com/api-keys",
+    },
+    {
+      id: "gemini",
+      name: "Google Gemini",
+      icon: "🔮",
+      description: "Google's Gemini Pro and other advanced models",
+      placeholder: "AIza...",
+      website: "https://aistudio.google.com/app/apikey",
+    },
+    {
+      id: "grok",
+      name: "Grok (xAI)",
+      icon: "❌",
+      description: "xAI's Grok models with real-time information",
+      placeholder: "xai-...",
+      website: "https://console.x.ai/",
+    },
+    {
+      id: "groq",
+      name: "Groq",
+      icon: "⚡",
+      description: "Ultra-fast inference with Llama and other models",
+      placeholder: "gsk_...",
+      website: "https://console.groq.com/keys",
+    },
+    {
+      id: "openrouter",
+      name: "OpenRouter",
+      icon: "🛣️",
+      description: "Access to multiple AI models through one API",
+      placeholder: "sk-or-...",
+      website: "https://openrouter.ai/keys",
+    },
+  ];
 
   const loadUserPreferences = async () => {
     try {
@@ -105,15 +204,16 @@ export default function SettingsPage() {
   const loadUserImages = async () => {
     try {
       setLoadingImages(true);
-      const response = await fetch("/api/user/files");
+      const response = await fetch("/api/user/images");
 
       if (response.ok) {
         const data = await response.json();
-        // Only get images, not documents
-        setUserImages(data.files.images || []);
+        setUserImages(data.images || []);
         setImagesStats({
-          total_images: data.stats.total_images || 0,
-          total_size_mb: Math.round((data.stats.total_size_bytes || 0) / (1024 * 1024) * 100) / 100,
+          total_images: data.total_images,
+          total_size_mb:
+            Math.round(((data.total_size_bytes || 0) / (1024 * 1024)) * 100) /
+            100,
         });
       }
     } catch (error) {
@@ -123,11 +223,28 @@ export default function SettingsPage() {
     }
   };
 
+  const loadUserMemory = async () => {
+    try {
+      setLoadingMemory(true);
+      const response = await fetch("/api/user/memory");
+
+      if (response.ok) {
+        const data = await response.json();
+        setUserMemory(data.memory || []);
+      }
+    } catch (error) {
+      console.error("Error loading memory:", error);
+    } finally {
+      setLoadingMemory(false);
+    }
+  };
+
   // Load user preferences on mount
   useEffect(() => {
     if (user && !authLoading) {
       loadUserPreferences();
       loadUserImages();
+      loadUserMemory();
     }
   }, [user, authLoading]);
 
@@ -260,6 +377,35 @@ export default function SettingsPage() {
     }
   };
 
+  const handleDeleteAllMemory = async () => {
+    if (!user) return;
+
+    const confirmed = window.confirm(
+      "Are you sure you want to delete all your AI memories? This will remove everything the AI remembers about you and cannot be undone."
+    );
+
+    if (!confirmed) return;
+
+    try {
+      setLoading(true);
+      const response = await fetch("/api/user/memory", {
+        method: "DELETE",
+      });
+
+      if (response.ok) {
+        setUserMemory([]);
+        alert("All memories deleted successfully.");
+      } else {
+        alert("Failed to delete memories. Please try again.");
+      }
+    } catch (error) {
+      console.error("Error deleting memories:", error);
+      alert("Failed to delete memories. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const formatFileSize = (bytes: number): string => {
     if (bytes === 0) return "0 Bytes";
     const k = 1024;
@@ -267,59 +413,6 @@ export default function SettingsPage() {
     const i = Math.floor(Math.log(bytes) / Math.log(k));
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
   };
-
-  // Redirect to login if not authenticated
-  if (!authLoading && !user) {
-    router.push("/login");
-    return null;
-  }
-
-  // Show loading spinner while checking auth
-  if (authLoading) {
-    return (
-      <div className="w-full min-h-screen bg-gradient-to-b from-[#fdfbfb] to-[#ebedee] dark:from-[#1B1B1B] dark:to-[#003153] flex items-center justify-center">
-        <Loader2 className="w-8 h-8 animate-spin text-gray-600 dark:text-gray-400" />
-      </div>
-    );
-  }
-
-  const apiProviders = [
-    {
-      id: "openai",
-      name: "OpenAI",
-      description: "Access GPT-4, GPT-3.5, and other OpenAI models",
-      placeholder: "sk-...",
-      website: "https://platform.openai.com/api-keys",
-    },
-    {
-      id: "gemini",
-      name: "Google Gemini",
-      description: "Access Gemini Pro and other Google AI models",
-      placeholder: "AIza...",
-      website: "https://makersuite.google.com/app/apikey",
-    },
-    {
-      id: "grok",
-      name: "Grok (xAI)",
-      description: "Access Grok models from xAI",
-      placeholder: "xai-...",
-      website: "https://x.ai",
-    },
-    {
-      id: "groq",
-      name: "Groq",
-      description: "Access high-speed inference for various models",
-      placeholder: "gsk_...",
-      website: "https://console.groq.com/keys",
-    },
-    {
-      id: "openrouter",
-      name: "OpenRouter",
-      description: "Access multiple AI models through one API",
-      placeholder: "sk-or-...",
-      website: "https://openrouter.ai/keys",
-    },
-  ];
 
   const handleApiKeyChange = (providerId: string, value: string) => {
     setApiKeys((prev) => ({
@@ -329,7 +422,6 @@ export default function SettingsPage() {
   };
 
   const handleSaveApiKey = (providerId: string) => {
-    // Here you would save the API key to your backend/storage
     console.log(`Saving API key for ${providerId}:`, apiKeys[providerId]);
   };
 
@@ -360,752 +452,1143 @@ export default function SettingsPage() {
     setTraits(traits.filter((_, i) => i !== index));
   };
 
-  const suggestedTraits = [
-    "empathetic",
-    "creative",
-    "patient",
-    "analytical",
-    "humorous",
-    "direct",
+  const navigationSections = [
+    {
+      id: "account",
+      title: "Account",
+      icon: Crown,
+      description: "Premium upgrade and account management",
+    },
+    {
+      id: "appearance",
+      title: "Appearance",
+      icon: Palette,
+      description: "Theme and visual customization",
+    },
+    {
+      id: "personalization",
+      title: "Personalization",
+      icon: User,
+      description: "Personal information and AI personality",
+    },
+    {
+      id: "history",
+      title: "History",
+      icon: History,
+      description: "Conversation history and data",
+    },
+    {
+      id: "memory",
+      title: "Memory",
+      icon: Database,
+      description: "Manage your AI's memory",
+    },
+    {
+      id: "images",
+      title: "Images",
+      icon: Image,
+      description: "Generated images and media",
+    },
+    {
+      id: "api-keys",
+      title: "API Keys",
+      icon: Key,
+      description: "External service integrations",
+    },
+    {
+      id: "notifications",
+      title: "Notifications",
+      icon: Bell,
+      description: "Alert preferences and settings",
+    },
+    {
+      id: "security",
+      title: "Security",
+      icon: Lock,
+      description: "Privacy and security settings",
+    },
+    {
+      id: "support",
+      title: "Support",
+      icon: HelpCircle,
+      description: "Get help and contact support",
+    },
   ];
 
-  const upgradeBenefits = [
-    {
-      icon: Monitor,
-      title: "Advanced Models",
-      description: "Access to GPT-4, Claude, and other premium AI models.",
-      color: "emerald",
-    },
-    {
-      icon: TrendingUp,
-      title: "Higher Limits",
-      description: "Unlimited conversations and extended usage quotas.",
-      color: "purple",
-    },
-    {
-      icon: Headphones,
-      title: "Priority Support",
-      description: "24/7 dedicated support with faster response times.",
-      color: "orange",
-    },
-  ];
+  const renderContent = () => {
+    switch (activeSection) {
+      case "account":
+        return (
+          <div className="space-y-8">
+            {/* Profile Section */}
+            <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
+              {/* Profile Header */}
+              <div className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-slate-800 dark:to-slate-700 px-8 py-6 border-b border-slate-200 dark:border-slate-700">
+                <div className="flex items-center gap-4">
+                  <div className="relative">
+                    <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-blue-500 via-purple-500 to-indigo-600 flex items-center justify-center shadow-lg ring-4 ring-white dark:ring-slate-800">
+                      {user?.user_metadata?.avatar_url ? (
+                        <img
+                          src={user.user_metadata.avatar_url}
+                          alt={user.user_metadata?.full_name || "User"}
+                          className="w-full h-full rounded-2xl object-cover"
+                        />
+                      ) : (
+                        <User className="w-8 h-8 text-white" />
+                      )}
+                    </div>
+                    <div className="absolute -bottom-1 -right-1 w-5 h-5 bg-emerald-500 rounded-full flex items-center justify-center ring-2 ring-white dark:ring-slate-800">
+                      <div className="w-2 h-2 bg-white rounded-full"></div>
+                    </div>
+                  </div>
 
-  const getColorClasses = (color: string) => {
-    const colorMap = {
-      emerald: {
-        bg: "bg-emerald-50 dark:bg-emerald-900/20",
-        text: "text-emerald-600 dark:text-emerald-400",
-      },
-      purple: {
-        bg: "bg-purple-50 dark:bg-purple-900/20",
-        text: "text-purple-600 dark:text-purple-400",
-      },
-      orange: {
-        bg: "bg-orange-50 dark:bg-orange-900/20",
-        text: "text-orange-600 dark:text-orange-400",
-      },
-    };
-    return colorMap[color as keyof typeof colorMap];
+                  <div className="flex-1 min-w-0">
+                    <h3 className="text-xl font-bold text-slate-900 dark:text-white truncate">
+                      {userName ||
+                        user?.user_metadata?.full_name ||
+                        user?.email?.split("@")[0] ||
+                        "User"}
+                    </h3>
+                    <p className="text-slate-600 dark:text-slate-400 text-sm truncate">
+                      {user?.email}
+                    </p>
+                    <div className="flex items-center gap-3 mt-2">
+                      <div className="inline-flex items-center gap-2 px-3 py-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-full shadow-sm">
+                        <div className="w-2 h-2 bg-slate-400 rounded-full"></div>
+                        <span className="text-xs font-medium text-slate-600 dark:text-slate-300">
+                          Free Plan
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="px-8 py-6">
+                <h4 className="text-sm font-semibold text-slate-900 dark:text-white mb-4">
+                  Quick Actions
+                </h4>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <button
+                    onClick={() => setActiveSection("personalization")}
+                    className="flex flex-col items-center gap-2 p-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
+                  >
+                    <User className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+                    <span className="text-xs font-medium text-slate-700 dark:text-slate-300">
+                      Edit Profile
+                    </span>
+                  </button>
+                  <button
+                    onClick={() => setActiveSection("appearance")}
+                    className="flex flex-col items-center gap-2 p-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
+                  >
+                    <Palette className="w-5 h-5 text-purple-600 dark:text-purple-400" />
+                    <span className="text-xs font-medium text-slate-700 dark:text-slate-300">
+                      Theme
+                    </span>
+                  </button>
+                  <button
+                    onClick={() => setActiveSection("security")}
+                    className="flex flex-col items-center gap-2 p-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
+                  >
+                    <Shield className="w-5 h-5 text-green-600 dark:text-green-400" />
+                    <span className="text-xs font-medium text-slate-700 dark:text-slate-300">
+                      Security
+                    </span>
+                  </button>
+                  <button
+                    onClick={() => setActiveSection("support")}
+                    className="flex flex-col items-center gap-2 p-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
+                  >
+                    <HelpCircle className="w-5 h-5 text-orange-600 dark:text-orange-400" />
+                    <span className="text-xs font-medium text-slate-700 dark:text-slate-300">
+                      Support
+                    </span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Usage Limits */}
+            <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 p-6 shadow-sm">
+              <div className="flex items-center gap-3 mb-6">
+                <div className="w-10 h-10 bg-blue-100 dark:bg-blue-900/30 rounded-xl flex items-center justify-center">
+                  <Zap className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+                </div>
+                <div>
+                  <h3 className="font-semibold text-slate-900 dark:text-white">
+                    Usage & Limits
+                  </h3>
+                  <p className="text-sm text-slate-600 dark:text-slate-400">
+                    Track your current usage and plan limits
+                  </p>
+                </div>
+              </div>
+              <Limiter />
+            </div>
+
+            {/* Premium Section */}
+            <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 p-8 shadow-sm">
+              <div className="text-center mb-8">
+                <div className="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-br from-slate-100 to-slate-200 dark:from-slate-700 dark:to-slate-600 rounded-2xl mb-6">
+                  <Crown className="w-8 h-8 text-slate-600 dark:text-slate-300" />
+                </div>
+
+                <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-3">
+                  Upgrade to Premium
+                </h2>
+                <p className="text-slate-600 dark:text-slate-400 max-w-md mx-auto leading-relaxed">
+                  Unlock advanced features, remove limits, and get priority
+                  support for the best AI experience.
+                </p>
+
+                <div className="flex items-baseline justify-center gap-1 mt-6">
+                  <span className="text-4xl font-bold text-slate-900 dark:text-white">
+                    $8
+                  </span>
+                  <span className="text-lg text-slate-500 dark:text-slate-400">
+                    /month
+                  </span>
+                </div>
+                <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
+                  Cancel anytime
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                {upgradeBenefits.map((benefit, index) => {
+                  const IconComponent = benefit.icon;
+                  return (
+                    <div
+                      key={index}
+                      className="text-center p-6 rounded-xl bg-slate-50 dark:bg-slate-700/50 border border-slate-100 dark:border-slate-600/50"
+                    >
+                      <div className="inline-flex items-center justify-center w-12 h-12 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-600 mb-4">
+                        <IconComponent className="w-6 h-6 text-slate-700 dark:text-slate-300" />
+                      </div>
+                      <h4 className="font-semibold text-slate-900 dark:text-white mb-2 text-base">
+                        {benefit.title}
+                      </h4>
+                      <p className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
+                        {benefit.description}
+                      </p>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div className="space-y-4">
+                <button className="w-full bg-slate-900 cursor-pointer hover:bg-slate-800 dark:bg-white dark:hover:bg-slate-300 text-white dark:text-slate-900 py-4 px-6 rounded-xl font-semibold transition-all duration-200 shadow-sm hover:shadow-md">
+                  Start Premium
+                </button>
+              </div>
+            </div>
+
+            {/* Danger Zone */}
+            <div className="bg-white dark:bg-slate-800 rounded-2xl border border-red-200 dark:border-red-800 p-6">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-10 h-10 bg-red-100 dark:bg-red-900/30 rounded-xl flex items-center justify-center">
+                  <AlertTriangle className="w-5 h-5 text-red-600 dark:text-red-400" />
+                </div>
+                <div>
+                  <h3 className="font-semibold text-red-600 dark:text-red-400">
+                    Danger Zone
+                  </h3>
+                  <p className="text-sm text-red-500 dark:text-red-400">
+                    Irreversible actions that affect your account
+                  </p>
+                </div>
+              </div>
+
+              <div className="bg-red-50 dark:bg-red-900/20 rounded-xl p-4 mb-4">
+                <p className="text-sm text-red-700 dark:text-red-300">
+                  Permanently delete your account and all associated data. This
+                  action cannot be undone.
+                </p>
+              </div>
+
+              <button
+                onClick={handleDeleteAccount}
+                disabled={loading}
+                className="bg-red-600 hover:bg-red-700 disabled:bg-red-400 disabled:cursor-not-allowed text-white px-6 py-3 rounded-xl font-medium transition-colors flex items-center gap-2"
+              >
+                {loading && <Loader2 className="w-4 h-4 animate-spin" />}
+                <Trash2 className="w-4 h-4" />
+                Delete Account
+              </button>
+            </div>
+          </div>
+        );
+
+      case "personalization":
+        return (
+          <div className="space-y-8">
+            {/* Personal Information */}
+            <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 p-6">
+              <div className="flex items-center gap-3 mb-6">
+                <div className="w-10 h-10 bg-blue-100 dark:bg-blue-900/30 rounded-xl flex items-center justify-center">
+                  <User className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+                </div>
+                <div>
+                  <h3 className="font-semibold text-slate-900 dark:text-white">
+                    Personal Information
+                  </h3>
+                  <p className="text-sm text-slate-600 dark:text-slate-400">
+                    Help the AI understand you better
+                  </p>
+                </div>
+              </div>
+
+              <div className="space-y-6">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-3">
+                    Display Name
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      value={userName}
+                      onChange={(e) => setUserName(e.target.value.slice(0, 50))}
+                      placeholder="What should the AI call you?"
+                      className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl text-slate-900 dark:text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-colors"
+                      maxLength={50}
+                    />
+                    <div className="absolute right-3 top-3 text-xs text-slate-400">
+                      {userName.length}/50
+                    </div>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-3">
+                    Occupation
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      value={userOccupation}
+                      onChange={(e) =>
+                        setUserOccupation(e.target.value.slice(0, 100))
+                      }
+                      placeholder="Engineer, student, designer, etc."
+                      className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl text-slate-900 dark:text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-colors"
+                      maxLength={100}
+                    />
+                    <div className="absolute right-3 top-3 text-xs text-slate-400">
+                      {userOccupation.length}/100
+                    </div>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-3">
+                    Additional Context
+                  </label>
+                  <div className="relative">
+                    <textarea
+                      value={additionalInfo}
+                      onChange={(e) =>
+                        setAdditionalInfo(e.target.value.slice(0, 3000))
+                      }
+                      placeholder="Share your interests, communication style preferences, or anything else that would help the AI assist you better..."
+                      className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl text-slate-900 dark:text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-colors resize-none"
+                      rows={6}
+                      maxLength={3000}
+                    />
+                    <div className="absolute right-3 bottom-3 text-xs text-slate-400">
+                      {additionalInfo.length}/3000
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* AI Personality Traits */}
+            <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 p-6">
+              <div className="flex items-center gap-3 mb-6">
+                <div className="w-10 h-10 bg-emerald-100 dark:bg-emerald-900/30 rounded-xl flex items-center justify-center">
+                  <Brain className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
+                </div>
+                <div>
+                  <h3 className="font-semibold text-slate-900 dark:text-white">
+                    AI Personality Traits
+                  </h3>
+                  <p className="text-sm text-slate-600 dark:text-slate-400">
+                    Define how the AI should communicate with you
+                  </p>
+                </div>
+              </div>
+
+              <div className="space-y-6">
+                <div>
+                  <div className="flex items-center justify-between mb-3">
+                    <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                      Add Traits
+                    </label>
+                    <span className="text-xs text-slate-500 dark:text-slate-400">
+                      {traits.length}/50 traits
+                    </span>
+                  </div>
+
+                  <div className="relative">
+                    <input
+                      type="text"
+                      value={traitInput}
+                      onChange={(e) =>
+                        setTraitInput(e.target.value.slice(0, 100))
+                      }
+                      onKeyDown={handleTraitInputKeyDown}
+                      placeholder="Type a trait and press Enter..."
+                      className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl text-slate-900 dark:text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-colors"
+                      maxLength={100}
+                      disabled={traits.length >= 50}
+                    />
+                  </div>
+                </div>
+
+                {/* Suggested Traits */}
+                <div>
+                  <p className="text-sm text-slate-600 dark:text-slate-400 mb-3">
+                    Quick suggestions:
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {suggestedTraits
+                      .filter((trait) => !traits.includes(trait))
+                      .map((trait, index) => (
+                        <button
+                          key={index}
+                          onClick={() => handleTraitAdd(trait)}
+                          disabled={traits.length >= 50}
+                          className="inline-flex items-center gap-1.5 px-3 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          <Plus className="w-3 h-3" />
+                          {trait}
+                        </button>
+                      ))}
+                  </div>
+                </div>
+
+                {/* Current Traits */}
+                {traits.length > 0 && (
+                  <div>
+                    <p className="text-sm text-slate-600 dark:text-slate-400 mb-3">
+                      Current traits:
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      {traits.map((trait, index) => (
+                        <div
+                          key={index}
+                          className="inline-flex items-center gap-2 px-3 py-2 bg-blue-100 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-700 rounded-lg text-sm text-blue-800 dark:text-blue-300"
+                        >
+                          <span>{trait}</span>
+                          <button
+                            onClick={() => removeTrait(index)}
+                            className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-200 transition-colors"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Save Button */}
+            <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 p-6">
+              <button
+                onClick={loadUserPreferences}
+                disabled={loading}
+                className="text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors font-medium flex items-center gap-2"
+              >
+                {loading && <Loader2 className="w-4 h-4 animate-spin" />}
+                Reset to Saved
+              </button>
+
+              <div className="flex items-center gap-4">
+                {saveStatus === "success" && (
+                  <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400 text-sm font-medium">
+                    <CheckCircle className="w-4 h-4" />
+                    Preferences saved!
+                  </div>
+                )}
+                {saveStatus === "error" && (
+                  <div className="flex items-center gap-2 text-red-600 dark:text-red-400 text-sm font-medium">
+                    <XCircle className="w-4 h-4" />
+                    Failed to save
+                  </div>
+                )}
+
+                <button
+                  onClick={saveUserPreferences}
+                  disabled={saving}
+                  className="bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 disabled:cursor-not-allowed text-white px-6 py-3 rounded-xl font-medium transition-colors flex items-center gap-2"
+                >
+                  {saving && <Loader2 className="w-4 h-4 animate-spin" />}
+                  Save Changes
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+
+      case "appearance":
+        return (
+          <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 p-6">
+            <div className="flex items-center gap-3 mb-6">
+              <div className="w-10 h-10 bg-purple-100 dark:bg-purple-900/30 rounded-xl flex items-center justify-center">
+                <Palette className="w-5 h-5 text-purple-600 dark:text-purple-400" />
+              </div>
+              <div>
+                <h3 className="font-semibold text-slate-900 dark:text-white">
+                  Visual Preferences
+                </h3>
+                <p className="text-sm text-slate-600 dark:text-slate-400">
+                  Customize your interface appearance
+                </p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+              <div className="space-y-4">
+                <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                  Theme Preference
+                </label>
+                <div className="p-6 bg-slate-50 dark:bg-slate-700 rounded-xl">
+                  <ThemeSwitch />
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                  Layout Style
+                </label>
+                <div className="p-6 bg-slate-50 dark:bg-slate-700 rounded-xl">
+                  <LayoutSwitch />
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+
+      case "history":
+        return (
+          <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 p-6">
+            <div className="flex items-center gap-3 mb-6">
+              <div className="w-10 h-10 bg-indigo-100 dark:bg-indigo-900/30 rounded-xl flex items-center justify-center">
+                <Database className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
+              </div>
+              <div>
+                <h3 className="font-semibold text-slate-900 dark:text-white">
+                  Memory & History
+                </h3>
+                <p className="text-sm text-slate-600 dark:text-slate-400">
+                  Manage your conversation data and AI memory
+                </p>
+              </div>
+            </div>
+
+            <div className="space-y-6">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <button
+                  onClick={handleExportHistory}
+                  disabled={loading}
+                  className="bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 disabled:cursor-not-allowed text-white py-4 px-6 rounded-xl font-medium transition-colors flex items-center justify-center gap-2"
+                >
+                  {loading ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Download className="w-4 h-4" />
+                  )}
+                  Export History
+                </button>
+
+                <button
+                  onClick={handleDeleteHistory}
+                  disabled={loading}
+                  className="bg-red-600 hover:bg-red-700 disabled:bg-red-400 disabled:cursor-not-allowed text-white py-4 px-6 rounded-xl font-medium transition-colors flex items-center justify-center gap-2"
+                >
+                  {loading ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Trash2 className="w-4 h-4" />
+                  )}
+                  Clear Memory
+                </button>
+              </div>
+
+              <div className="p-4 bg-slate-50 dark:bg-slate-700 rounded-xl">
+                <div className="space-y-2 text-sm text-slate-600 dark:text-slate-400">
+                  <div className="flex items-center gap-2">
+                    <div className="w-1.5 h-1.5 bg-slate-400 rounded-full"></div>
+                    <span>
+                      Export downloads your chat history as a JSON file
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="w-1.5 h-1.5 bg-slate-400 rounded-full"></div>
+                    <span>
+                      Clearing memory removes all conversation context
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+
+      case "memory":
+        return (
+          <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 p-6">
+            <div className="flex items-center gap-3 mb-6">
+              <div className="w-10 h-10 bg-purple-100 dark:bg-purple-900/30 rounded-xl flex items-center justify-center">
+                <Database className="w-5 h-5 text-purple-600 dark:text-purple-400" />
+              </div>
+              <div>
+                <h3 className="font-semibold text-slate-900 dark:text-white">
+                  AI Memory
+                </h3>
+                <p className="text-sm text-slate-600 dark:text-slate-400">
+                  View what the AI remembers about you from conversations
+                </p>
+              </div>
+            </div>
+
+            {loadingMemory ? (
+              <div className="flex items-center justify-center py-16">
+                <div className="flex items-center gap-3">
+                  <Loader2 className="w-6 h-6 animate-spin text-blue-600 dark:text-blue-400" />
+                  <span className="text-slate-600 dark:text-slate-400 font-medium">
+                    Loading memory...
+                  </span>
+                </div>
+              </div>
+            ) : userMemory.length === 0 ? (
+              <div className="text-center py-16">
+                <div className="inline-flex items-center justify-center w-16 h-16 bg-slate-100 dark:bg-slate-800 rounded-2xl mb-4">
+                  <Database className="w-8 h-8 text-slate-400 dark:text-slate-500" />
+                </div>
+                <h4 className="text-lg font-semibold text-slate-900 dark:text-white mb-2">
+                  No memories yet
+                </h4>
+                <p className="text-slate-600 dark:text-slate-400 max-w-md mx-auto">
+                  The AI will remember important information about you as you
+                  have conversations. These memories help provide more
+                  personalized responses.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between mb-6">
+                  <span className="text-sm text-slate-600 dark:text-slate-400">
+                    {userMemory.length}{" "}
+                    {userMemory.length === 1 ? "memory" : "memories"} stored
+                  </span>
+                  <div className="flex items-center gap-4">
+                    <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+                      <div className="w-2 h-2 bg-emerald-500 rounded-full"></div>
+                      <span>Active memories</span>
+                    </div>
+                    <button
+                      onClick={handleDeleteAllMemory}
+                      disabled={loading}
+                      className="inline-flex items-center gap-2 px-3 py-1.5 bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 rounded-lg text-xs font-medium hover:bg-red-200 dark:hover:bg-red-900/50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {loading ? (
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                      ) : (
+                        <Trash2 className="w-3 h-3" />
+                      )}
+                      Delete All
+                    </button>
+                  </div>
+                </div>
+
+                <div className="grid gap-4">
+                  {userMemory.map((memory) => {
+                    // Extract content from memory_value
+                    let displayContent = "";
+                    try {
+                      if (typeof memory.memory_value === "string") {
+                        const parsed = JSON.parse(memory.memory_value);
+                        displayContent = parsed.content || memory.memory_value;
+                      } else if (memory.memory_value?.content) {
+                        displayContent = memory.memory_value.content;
+                      } else {
+                        displayContent = JSON.stringify(memory.memory_value);
+                      }
+                    } catch {
+                      displayContent = memory.memory_value;
+                    }
+
+                    return (
+                      <div
+                        key={memory.id}
+                        className="group p-5 bg-slate-50 dark:bg-slate-700/50 rounded-2xl border border-slate-200 dark:border-slate-600 hover:border-blue-300 dark:hover:border-blue-600 transition-all duration-200"
+                      >
+                        <div className="flex items-start justify-between gap-4 mb-4">
+                          <div className="flex items-center gap-3">
+                            <div className="w-8 h-8 bg-blue-100 dark:bg-blue-900/30 rounded-lg flex items-center justify-center">
+                              <Brain className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                            </div>
+                            <div>
+                              <h5 className="font-medium text-slate-900 dark:text-white text-sm">
+                                {memory.memory_key || "Memory"}
+                              </h5>
+                              <div className="flex items-center gap-3 mt-1">
+                                <span className="text-xs text-slate-500 dark:text-slate-400">
+                                  {new Date(
+                                    memory.created_at
+                                  ).toLocaleDateString("en-US", {
+                                    month: "short",
+                                    day: "numeric",
+                                    year: "numeric",
+                                    hour: "2-digit",
+                                    minute: "2-digit",
+                                  })}
+                                </span>
+                                {memory.memory_type && (
+                                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-slate-200 dark:bg-slate-600 text-slate-700 dark:text-slate-300">
+                                    {memory.memory_type}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="bg-white dark:bg-slate-800 rounded-xl p-4 border border-slate-200 dark:border-slate-600">
+                          <p className="text-slate-900 dark:text-white leading-relaxed">
+                            {displayContent}
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        );
+
+      case "images":
+        return (
+          <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 p-6">
+            <div className="flex items-center gap-3 mb-6">
+              <div className="w-10 h-10 bg-pink-100 dark:bg-pink-900/30 rounded-xl flex items-center justify-center">
+                <Image className="w-5 h-5 text-pink-600 dark:text-pink-400" />
+              </div>
+              <div>
+                <h3 className="font-semibold text-slate-900 dark:text-white">
+                  Generated Images
+                </h3>
+                <p className="text-sm text-slate-600 dark:text-slate-400">
+                  View and manage your AI-generated images
+                </p>
+              </div>
+            </div>
+
+            {loadingImages ? (
+              <div className="flex items-center justify-center py-16">
+                <div className="flex items-center gap-3">
+                  <Loader2 className="w-6 h-6 animate-spin text-blue-600 dark:text-blue-400" />
+                  <span className="text-slate-600 dark:text-slate-400 font-medium">
+                    Loading images...
+                  </span>
+                </div>
+              </div>
+            ) : (
+              <>
+                <ImageGallery images={userImages} />
+              </>
+            )}
+          </div>
+        );
+
+      case "api-keys":
+        return (
+          <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 p-6">
+            <div className="flex items-center gap-3 mb-6">
+              <div className="w-10 h-10 bg-yellow-100 dark:bg-yellow-900/30 rounded-xl flex items-center justify-center">
+                <Key className="w-5 h-5 text-yellow-600 dark:text-yellow-400" />
+              </div>
+              <div>
+                <h3 className="font-semibold text-slate-900 dark:text-white">
+                  API Keys
+                </h3>
+                <p className="text-sm text-slate-600 dark:text-slate-400">
+                  Connect your own AI service accounts
+                </p>
+              </div>
+            </div>
+
+            <div className="space-y-6">
+              {apiProviders.map((provider) => (
+                <div
+                  key={provider.id}
+                  className="border border-slate-200 dark:border-slate-700 rounded-xl p-6"
+                >
+                  <div className="flex items-start justify-between mb-4">
+                    <div className="flex items-center gap-3">
+                      <span className="text-2xl">{provider.icon}</span>
+                      <div>
+                        <h4 className="font-medium text-slate-900 dark:text-white">
+                          {provider.name}
+                        </h4>
+                        <p className="text-sm text-slate-600 dark:text-slate-400">
+                          {provider.description}
+                        </p>
+                      </div>
+                    </div>
+                    <a
+                      href={provider.website}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 text-sm font-medium whitespace-nowrap"
+                    >
+                      Get Key
+                      <ExternalLink className="w-3 h-3" />
+                    </a>
+                  </div>
+
+                  <div className="space-y-4">
+                    <input
+                      type="password"
+                      value={apiKeys[provider.id]}
+                      onChange={(e) =>
+                        handleApiKeyChange(provider.id, e.target.value)
+                      }
+                      placeholder={provider.placeholder}
+                      className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl text-slate-900 dark:text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-colors font-mono text-sm"
+                      autoComplete="new-password"
+                    />
+
+                    <div className="flex flex-col sm:flex-row gap-3">
+                      <button
+                        onClick={() => handleSaveApiKey(provider.id)}
+                        disabled={!apiKeys[provider.id].trim()}
+                        className="bg-blue-600 hover:bg-blue-700 disabled:bg-slate-400 disabled:cursor-not-allowed text-white py-2 px-4 rounded-lg text-sm font-medium transition-colors"
+                      >
+                        Save Key
+                      </button>
+                      {apiKeys[provider.id] && (
+                        <button
+                          onClick={() => handleRemoveApiKey(provider.id)}
+                          className="text-red-500 hover:text-red-700 py-2 px-4 text-sm font-medium transition-colors"
+                        >
+                          Remove
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-8 p-4 bg-slate-50 dark:bg-slate-700 rounded-xl">
+              <div className="space-y-2 text-sm text-slate-600 dark:text-slate-400">
+                <div className="flex items-center gap-2">
+                  <Shield className="w-4 h-4" />
+                  <span>All API keys are encrypted and stored securely</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="w-1.5 h-1.5 bg-slate-400 rounded-full ml-2"></div>
+                  <span>
+                    Keys are only used to make requests on your behalf
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+
+      case "notifications":
+        return (
+          <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 p-6">
+            <div className="flex items-center gap-3 mb-6">
+              <div className="w-10 h-10 bg-blue-100 dark:bg-blue-900/30 rounded-xl flex items-center justify-center">
+                <Bell className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+              </div>
+              <div>
+                <h3 className="font-semibold text-slate-900 dark:text-white">
+                  Notification Preferences
+                </h3>
+                <p className="text-sm text-slate-600 dark:text-slate-400">
+                  Configure how you receive updates and alerts
+                </p>
+              </div>
+            </div>
+
+            <div className="space-y-6">
+              <div className="flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-700 rounded-xl">
+                <div>
+                  <h4 className="font-medium text-slate-900 dark:text-white">
+                    Email notifications
+                  </h4>
+                  <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">
+                    Receive updates about your account
+                  </p>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input type="checkbox" className="sr-only peer" />
+                  <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 dark:peer-focus:ring-blue-800 rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-slate-600 peer-checked:bg-blue-600"></div>
+                </label>
+              </div>
+
+              <div className="flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-700 rounded-xl">
+                <div>
+                  <h4 className="font-medium text-slate-900 dark:text-white">
+                    Usage alerts
+                  </h4>
+                  <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">
+                    Get notified when approaching limits
+                  </p>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    className="sr-only peer"
+                    defaultChecked
+                  />
+                  <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 dark:peer-focus:ring-blue-800 rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-slate-600 peer-checked:bg-blue-600"></div>
+                </label>
+              </div>
+            </div>
+          </div>
+        );
+
+      case "security":
+        return (
+          <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 p-6">
+            <div className="flex items-center gap-3 mb-6">
+              <div className="w-10 h-10 bg-green-100 dark:bg-green-900/30 rounded-xl flex items-center justify-center">
+                <Lock className="w-5 h-5 text-green-600 dark:text-green-400" />
+              </div>
+              <div>
+                <h3 className="font-semibold text-slate-900 dark:text-white">
+                  Security & Privacy
+                </h3>
+                <p className="text-sm text-slate-600 dark:text-slate-400">
+                  Manage your security settings and data privacy
+                </p>
+              </div>
+            </div>
+
+            <div className="space-y-6">
+              <div className="p-4 bg-slate-50 dark:bg-slate-700 rounded-xl">
+                <h4 className="font-medium text-slate-900 dark:text-white mb-2">
+                  Two-Factor Authentication
+                </h4>
+                <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">
+                  Add an extra layer of security to your account
+                </p>
+                <button className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">
+                  Enable 2FA
+                </button>
+              </div>
+
+              <div className="p-4 bg-slate-50 dark:bg-slate-700 rounded-xl">
+                <h4 className="font-medium text-slate-900 dark:text-white mb-2">
+                  Data Privacy
+                </h4>
+                <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">
+                  Control how your data is used and stored
+                </p>
+                <button className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 text-sm font-medium">
+                  View Privacy Settings
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+
+      case "support":
+        return (
+          <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 p-6">
+            <div className="flex items-center gap-3 mb-6">
+              <div className="w-10 h-10 bg-orange-100 dark:bg-orange-900/30 rounded-xl flex items-center justify-center">
+                <HelpCircle className="w-5 h-5 text-orange-600 dark:text-orange-400" />
+              </div>
+              <div>
+                <h3 className="font-semibold text-slate-900 dark:text-white">
+                  Contact Support
+                </h3>
+                <p className="text-sm text-slate-600 dark:text-slate-400">
+                  Get help from our dedicated support team
+                </p>
+              </div>
+            </div>
+
+            <div className="space-y-6">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-3">
+                  Subject
+                </label>
+                <input
+                  type="text"
+                  placeholder="How can we help you?"
+                  className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl text-slate-900 dark:text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-colors"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-3">
+                  Message
+                </label>
+                <textarea
+                  placeholder="Describe your issue or question in detail..."
+                  className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl text-slate-900 dark:text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-colors resize-none"
+                  rows={6}
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-3">
+                  Priority Level
+                </label>
+                <select className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-colors">
+                  <option value="low">Low - General question</option>
+                  <option value="medium">Medium - Issue affecting usage</option>
+                  <option value="high">High - Critical problem</option>
+                </select>
+              </div>
+
+              <button className="w-full bg-blue-600 hover:bg-blue-700 text-white py-4 px-6 rounded-xl font-medium transition-colors flex items-center justify-center gap-2">
+                <Mail className="w-4 h-4" />
+                Send Message
+              </button>
+            </div>
+          </div>
+        );
+
+      default:
+        return null;
+    }
   };
 
+  // Redirect to login if not authenticated
+  if (!authLoading && !user) {
+    router.push("/login");
+    return null;
+  }
+
+  // Show loading spinner while checking auth
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100 dark:from-slate-900 dark:via-slate-900 dark:to-slate-800 flex items-center justify-center">
+        <div className="flex items-center gap-3">
+          <Loader2 className="w-6 h-6 animate-spin text-blue-600 dark:text-blue-400" />
+          <span className="text-slate-600 dark:text-slate-400 font-medium">
+            Loading...
+          </span>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="w-full min-h-screen bg-gradient-to-b from-[#fdfbfb] to-[#ebedee] dark:from-[#1B1B1B] dark:to-[#003153]">
-      <div className="max-w-6xl mx-auto px-4 sm:px-6 py-4 sm:py-8">
-        {/* Go Back Button */}
-        <div className="mb-4 sm:mb-6">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100 dark:from-slate-900 dark:via-slate-900 dark:to-slate-800">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 lg:py-8">
+        {/* Header */}
+        <div className="mb-8">
           <button
             onClick={() => router.back()}
-            className="flex items-center gap-2 text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors cursor-pointer"
+            className="group flex items-center gap-2 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-all duration-200 mb-6"
           >
-            <ArrowLeft className="w-4 h-4" />
-            <span className="text-sm font-medium">Go Back</span>
+            <ArrowLeft className="w-4 h-4 transition-transform group-hover:-translate-x-1" />
+            <span className="font-medium">Back</span>
           </button>
-        </div>
 
-        <div className="lg:flex lg:gap-8">
-          {/* Mobile Sidebar Toggle */}
-          <div className="lg:hidden mb-4">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div>
+              <h1 className="text-3xl font-bold text-slate-900 dark:text-white">
+                Settings
+              </h1>
+              <p className="text-slate-600 dark:text-slate-400 mt-2">
+                Manage your account preferences and personalization
+              </p>
+            </div>
+
+            {/* Mobile menu toggle */}
             <button
               onClick={() => setSidebarOpen(!sidebarOpen)}
-              className="flex items-center gap-2 p-2 rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400"
+              className="lg:hidden inline-flex items-center gap-2 px-4 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
             >
               <Menu className="w-4 h-4" />
-              <span className="text-sm font-medium">Profile & Limits</span>
+              <span className="font-medium">Menu</span>
             </button>
           </div>
+        </div>
 
-          {/* Sidebar Profile */}
+        <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
+          {/* Navigation Sidebar */}
           <div
-            className={`w-full lg:w-72 lg:flex-shrink-0 ${
+            className={`lg:col-span-1 ${
               sidebarOpen ? "block" : "hidden lg:block"
-            } mb-6 lg:mb-0`}
+            } lg:block`}
           >
             <div className="lg:sticky lg:top-8">
-              <div className="text-center p-4 lg:p-0">
-                <div className="w-16 h-16 mx-auto rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center mb-4">
-                  {user?.user_metadata?.avatar_url ? (
-                    <img
-                      src={user.user_metadata.avatar_url}
-                      alt={user.user_metadata?.full_name || 'User'}
-                      className="w-full h-full rounded-full object-cover"
-                    />
-                  ) : (
-                    <User className="w-8 h-8 text-white" />
-                  )}
-                </div>
-                <h3 className="font-medium text-gray-900 dark:text-white">
-                  {userName || user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'User'}
-                </h3>
-                <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                  {user?.email}
-                </p>
-                <div className="inline-flex items-center px-3 py-1 rounded-full bg-gray-100 dark:bg-gray-800 text-xs font-medium text-gray-600 dark:text-gray-400 mt-3">
-                  Free Plan
-                </div>
-              </div>
+              <nav className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 p-4 shadow-sm">
+                <div className="space-y-1">
+                  {navigationSections.map((section) => {
+                    const IconComponent = section.icon;
+                    const isActive = activeSection === section.id;
 
-              <div className="mt-6 lg:mt-8">
-                <Limiter />
-              </div>
+                    return (
+                      <button
+                        key={section.id}
+                        onClick={() => setActiveSection(section.id)}
+                        className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-left transition-all duration-200 group ${
+                          isActive
+                            ? "bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400"
+                            : "text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700"
+                        }`}
+                      >
+                        <IconComponent
+                          className={`w-5 h-5 ${
+                            isActive
+                              ? "text-blue-600 dark:text-blue-400"
+                              : "text-slate-500 dark:text-slate-400"
+                          }`}
+                        />
+                        <div className="flex-1 min-w-0">
+                          <div className="font-medium text-sm">
+                            {section.title}
+                          </div>
+                          <div className="text-xs text-slate-500 dark:text-slate-400 truncate">
+                            {section.description}
+                          </div>
+                        </div>
+                        <ChevronRight
+                          className={`w-4 h-4 transition-transform ${
+                            isActive ? "rotate-90" : "group-hover:translate-x-1"
+                          } text-slate-400`}
+                        />
+                      </button>
+                    );
+                  })}
+                </div>
+              </nav>
             </div>
           </div>
 
           {/* Main Content */}
-          <div className="flex-1 min-w-0">
-            <div className="mb-6 sm:mb-8">
-              <h1 className="text-xl sm:text-2xl font-semibold text-gray-900 dark:text-white">
-                Settings
-              </h1>
-              <p className="text-gray-600 dark:text-gray-400 mt-1">
-                Manage your account and preferences
-              </p>
+          <div className="lg:col-span-3">
+            <div className="min-h-96">
+              {loadingPreferences && activeSection === "personalization" ? (
+                <div className="flex items-center justify-center py-16">
+                  <div className="flex items-center gap-3">
+                    <Loader2 className="w-6 h-6 animate-spin text-blue-600 dark:text-blue-400" />
+                    <span className="text-slate-600 dark:text-slate-400 font-medium">
+                      Loading preferences...
+                    </span>
+                  </div>
+                </div>
+              ) : (
+                renderContent()
+              )}
             </div>
-
-            <Tabs defaultValue="account" className="w-full">
-              <TabsList className=" bg-gray-100 dark:bg-gray-800 p-1">
-                <TabsTrigger
-                  value="account"
-                  className="text-xs sm:text-sm whitespace-nowrap"
-                >
-                  Account
-                </TabsTrigger>
-                <TabsTrigger
-                  value="customization"
-                  className="text-xs sm:text-sm whitespace-nowrap"
-                >
-                  Custom
-                </TabsTrigger>
-                <TabsTrigger
-                  value="history"
-                  className="text-xs sm:text-sm whitespace-nowrap"
-                >
-                  History
-                </TabsTrigger>
-                <TabsTrigger
-                  value="apikeys"
-                  className="text-xs sm:text-sm whitespace-nowrap"
-                >
-                  API Keys
-                </TabsTrigger>
-                <TabsTrigger
-                  value="attachments"
-                  className="text-xs sm:text-sm whitespace-nowrap"
-                >
-                  Files
-                </TabsTrigger>
-                <TabsTrigger
-                  value="contact"
-                  className="text-xs sm:text-sm whitespace-nowrap"
-                >
-                  Support
-                </TabsTrigger>
-              </TabsList>
-
-              <TabsContent
-                value="account"
-                className="mt-6 sm:mt-8 space-y-6 sm:space-y-8"
-              >
-                {/* Upgrade Section */}
-                <div>
-                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-4 sm:mb-6 gap-4">
-                    <div>
-                      <h2 className="text-base sm:text-lg font-medium text-gray-900 dark:text-white">
-                        Upgrade to Pro
-                      </h2>
-                      <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                        Unlock premium features and capabilities
-                      </p>
-                    </div>
-                    <div className="text-left sm:text-right">
-                      <div className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white">
-                        $8
-                        <span className="text-base font-normal text-gray-500 dark:text-gray-400">
-                          /mo
-                        </span>
-                      </div>
-                      <p className="text-xs text-gray-400">Billed monthly</p>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
-                    {upgradeBenefits.map((benefit, index) => {
-                      const colors = getColorClasses(benefit.color);
-                      const IconComponent = benefit.icon;
-
-                      return (
-                        <div
-                          key={index}
-                          className="p-4 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800"
-                        >
-                          <div
-                            className={`w-8 h-8 ${colors.bg} rounded-lg flex items-center justify-center mb-3`}
-                          >
-                            <IconComponent
-                              className={`w-4 h-4 ${colors.text}`}
-                            />
-                          </div>
-                          <h4 className="font-medium text-gray-900 dark:text-white text-sm mb-2">
-                            {benefit.title}
-                          </h4>
-                          <p className="text-xs text-gray-600 dark:text-gray-400 leading-relaxed">
-                            {benefit.description}
-                          </p>
-                        </div>
-                      );
-                    })}
-                  </div>
-
-                  <button className="w-full bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white py-3 px-4 rounded-lg font-medium transition-all duration-200">
-                    Upgrade Now
-                  </button>
-                </div>
-
-                {/* Danger Zone */}
-                <div className="border-t border-gray-200 dark:border-gray-700 pt-6 sm:pt-8">
-                  <div className="flex items-center gap-2 mb-4">
-                    <AlertTriangle className="w-5 h-5 text-red-500" />
-                    <h3 className="font-medium text-red-600 dark:text-red-400">
-                      Danger Zone
-                    </h3>
-                  </div>
-                  <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
-                    Permanently delete your account and all data. This action
-                    cannot be undone.
-                  </p>
-                  <button
-                    onClick={handleDeleteAccount}
-                    disabled={loading}
-                    className="bg-red-600 hover:bg-red-700 disabled:bg-red-400 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
-                  >
-                    {loading && <Loader2 className="w-4 h-4 animate-spin" />}
-                    Delete Account
-                  </button>
-                </div>
-              </TabsContent>
-
-              <TabsContent value="customization" className="mt-6 sm:mt-8">
-                {loadingPreferences ? (
-                  <div className="flex items-center justify-center py-12">
-                    <Loader2 className="w-8 h-8 animate-spin text-gray-600 dark:text-gray-400" />
-                  </div>
-                ) : (
-                  <div className="space-y-6 sm:space-y-8">
-                    {/* Visual Options Section */}
-                    <div>
-                      <div className="flex items-center gap-2 mb-4 sm:mb-6">
-                        <Eye className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
-                        <h2 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-white">
-                          Visual Options
-                        </h2>
-                      </div>
-
-                      <div className="space-y-4 sm:space-y-6">
-                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-                          <div className="flex-1">
-                            <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                              Change Theme
-                            </h3>
-                            <p className="text-xs text-gray-500 dark:text-gray-400">
-                              Switch between light, dark, system, or dynamic
-                              themes to customize your visual experience.
-                            </p>
-                          </div>
-                          <div className="sm:ml-6">
-                            <ThemeSwitch />
-                          </div>
-                        </div>
-
-                        <div className="border-b border-gray-200 dark:border-gray-600"></div>
-
-                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-                          <div className="flex-1">
-                            <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                              Change Layout
-                            </h3>
-                            <p className="text-xs text-gray-500 dark:text-gray-400">
-                              Choose between default and rework layouts to
-                              optimize your interface and workflow.
-                            </p>
-                          </div>
-                          <div className="sm:ml-6">
-                            <LayoutSwitch />
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* User Info Section */}
-                    <div className="border-t border-gray-200 dark:border-gray-700 pt-6 sm:pt-8">
-                      <div className="flex items-center gap-2 mb-4 sm:mb-6">
-                        <User className="w-5 h-5 text-blue-600 dark:text-blue-400" />
-                        <h2 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-white">
-                          User Info
-                        </h2>
-                      </div>
-
-                      <div className="space-y-4 sm:space-y-6">
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
-                            What should the AI call you?
-                          </label>
-                          <div className="relative">
-                            <input
-                              type="text"
-                              value={userName}
-                              onChange={(e) =>
-                                setUserName(e.target.value.slice(0, 50))
-                              }
-                              placeholder="Your preferred name"
-                              className="w-full p-3 sm:p-4 bg-transparent text-gray-900 dark:text-white focus:outline-none transition-colors"
-                              maxLength={50}
-                            />
-                            <div className="absolute right-0 top-3 sm:top-4 text-xs text-gray-400">
-                              {userName.length}/50
-                            </div>
-                            <div className="border-b border-gray-300 dark:border-gray-600"></div>
-                          </div>
-                        </div>
-
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
-                            What do you do?
-                          </label>
-                          <div className="relative">
-                            <input
-                              type="text"
-                              value={userOccupation}
-                              onChange={(e) =>
-                                setUserOccupation(e.target.value.slice(0, 100))
-                              }
-                              placeholder="Engineer, student, designer, etc."
-                              className="w-full p-3 sm:p-4 bg-transparent text-gray-900 dark:text-white focus:outline-none transition-colors"
-                              maxLength={100}
-                            />
-                            <div className="absolute right-0 top-3 sm:top-4 text-xs text-gray-400">
-                              {userOccupation.length}/100
-                            </div>
-                            <div className="border-b border-gray-300 dark:border-gray-600"></div>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Chatbot Customization Section */}
-                    <div className="border-t border-gray-200 dark:border-gray-700 pt-6 sm:pt-8">
-                      <div className="flex items-center gap-2 mb-4 sm:mb-6">
-                        <Settings className="w-5 h-5 text-purple-600 dark:text-purple-400" />
-                        <h2 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-white">
-                          Chatbot Customization
-                        </h2>
-                      </div>
-
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
-                          What traits should the AI have?
-                        </label>
-                        <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">
-                          Type a trait and press Enter to add it. Maximum 50
-                          traits.
-                        </p>
-
-                        {/* Trait Input */}
-                        <div className="relative mb-4 sm:mb-6">
-                          <input
-                            type="text"
-                            value={traitInput}
-                            onChange={(e) =>
-                              setTraitInput(e.target.value.slice(0, 100))
-                            }
-                            onKeyDown={handleTraitInputKeyDown}
-                            placeholder="Type a trait and press Enter..."
-                            className="w-full p-3 sm:p-4 bg-transparent text-gray-900 dark:text-white focus:outline-none transition-colors"
-                            maxLength={100}
-                            disabled={traits.length >= 50}
-                          />
-                          <div className="absolute right-0 top-3 sm:top-4 text-xs text-gray-400">
-                            {traits.length}/50
-                          </div>
-                          <div className="border-b border-gray-300 dark:border-gray-600"></div>
-                        </div>
-
-                        {/* Suggested Traits */}
-                        <div className="mb-4 sm:mb-6">
-                          <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
-                            Suggested traits:
-                          </p>
-                          <div className="flex flex-wrap gap-2">
-                            {suggestedTraits
-                              .filter((trait) => !traits.includes(trait))
-                              .map((trait, index) => (
-                                <button
-                                  key={index}
-                                  onClick={() => handleTraitAdd(trait)}
-                                  disabled={traits.length >= 50}
-                                  className="px-3 py-2 text-xs border border-gray-300 dark:border-gray-600 rounded-full hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400 transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-                                >
-                                  <Plus className="w-3 h-3 inline mr-1" />
-                                  {trait}
-                                </button>
-                              ))}
-                          </div>
-                        </div>
-
-                        {/* Current Traits */}
-                        {traits.length > 0 && (
-                          <div className="flex flex-wrap gap-2">
-                            {traits.map((trait, index) => (
-                              <div
-                                key={index}
-                                className="inline-flex items-center gap-1 px-3 py-2 bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-300 rounded-full text-sm"
-                              >
-                                <span>{trait}</span>
-                                <button
-                                  onClick={() => removeTrait(index)}
-                                  className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-200 transition-colors cursor-pointer ml-1 p-1"
-                                >
-                                  <X className="w-3 h-3" />
-                                </button>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Additional Preferences */}
-                    <div className="border-t border-gray-200 dark:border-gray-700 pt-6 sm:pt-8">
-                      <div className="flex items-center gap-2 mb-4 sm:mb-6">
-                        <Monitor className="w-5 h-5 text-green-600 dark:text-green-400" />
-                        <h2 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-white">
-                          Additional Preferences
-                        </h2>
-                      </div>
-
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
-                          Anything else the AI should know about you?
-                        </label>
-                        <div className="relative">
-                          <textarea
-                            value={additionalInfo}
-                            onChange={(e) =>
-                              setAdditionalInfo(e.target.value.slice(0, 3000))
-                            }
-                            placeholder="Interests, values, communication style preferences, or anything else that would help the AI assist you better..."
-                            className="w-full p-3 sm:p-4 bg-transparent text-gray-900 dark:text-white focus:outline-none transition-colors resize-none"
-                            rows={6}
-                            maxLength={3000}
-                          />
-                          <div className="absolute right-0 bottom-3 sm:bottom-4 text-xs text-gray-400">
-                            {additionalInfo.length}/3000
-                          </div>
-                          <div className="border-b border-gray-300 dark:border-gray-600"></div>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Action Buttons */}
-                    <div className="border-t border-gray-200 dark:border-gray-700 pt-6 sm:pt-8">
-                      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
-                        <button
-                          onClick={loadUserPreferences}
-                          disabled={loading}
-                          className="px-4 py-2 cursor-pointer text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white transition-colors font-medium order-2 sm:order-1 flex items-center gap-2"
-                        >
-                          {loading && (
-                            <Loader2 className="w-4 h-4 animate-spin" />
-                          )}
-                          Reload Preferences
-                        </button>
-
-                        <div className="flex items-center gap-3 order-1 sm:order-2">
-                          {saveStatus === "success" && (
-                            <div className="flex items-center gap-1 text-green-600 dark:text-green-400 text-sm">
-                              <CheckCircle className="w-4 h-4" />
-                              Saved!
-                            </div>
-                          )}
-                          {saveStatus === "error" && (
-                            <div className="flex items-center gap-1 text-red-600 dark:text-red-400 text-sm">
-                              <XCircle className="w-4 h-4" />
-                              Error saving
-                            </div>
-                          )}
-
-                          <button
-                            onClick={saveUserPreferences}
-                            disabled={saving}
-                            className="px-6 py-3 cursor-pointer bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 disabled:cursor-not-allowed text-white rounded-lg font-medium transition-colors flex items-center gap-2"
-                          >
-                            {saving && (
-                              <Loader2 className="w-4 h-4 animate-spin" />
-                            )}
-                            Save Preferences
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </TabsContent>
-
-              <TabsContent value="history" className="mt-6 sm:mt-8">
-                <div className="space-y-6">
-                  <div className="pb-4 border-b border-gray-200 dark:border-gray-700">
-                    <h2 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-white mb-2">
-                      Message History
-                    </h2>
-                    <p className="text-sm text-gray-600 dark:text-gray-400">
-                      Manage your conversation history and chat data. You can
-                      export your messages for backup or delete them
-                      permanently.
-                    </p>
-                  </div>
-
-                  <div className="flex flex-col gap-3">
-                    <button
-                      onClick={handleExportHistory}
-                      disabled={loading}
-                      className="bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 disabled:cursor-not-allowed text-white py-3 px-4 rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
-                    >
-                      {loading && <Loader2 className="w-4 h-4 animate-spin" />}
-                      Export Message History
-                    </button>
-                    <button
-                      onClick={handleDeleteHistory}
-                      disabled={loading}
-                      className="bg-red-600 hover:bg-red-700 disabled:bg-red-400 disabled:cursor-not-allowed text-white py-3 px-4 rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
-                    >
-                      {loading && <Loader2 className="w-4 h-4 animate-spin" />}
-                      Delete All Messages
-                    </button>
-                  </div>
-
-                  <div className="text-xs text-gray-500 dark:text-gray-400 space-y-1">
-                    <p>
-                      • Export will download your chat history as a JSON file
-                    </p>
-                    <p>• Deleting messages is permanent and cannot be undone</p>
-                  </div>
-                </div>
-              </TabsContent>
-
-              <TabsContent value="apikeys" className="mt-6 sm:mt-8">
-                <div className="space-y-6">
-                  <div className="pb-4 border-b border-gray-200 dark:border-gray-700">
-                    <h2 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-white mb-2">
-                      API Keys
-                    </h2>
-                    <p className="text-sm text-gray-600 dark:text-gray-400">
-                      Add your own API keys to access different AI models. Your
-                      keys are stored securely and only used for your requests.
-                    </p>
-                  </div>
-
-                  <div className="space-y-4">
-                    {apiProviders.map((provider) => (
-                      <div
-                        key={provider.id}
-                        className="p-4 border border-gray-200 dark:border-gray-600 rounded-lg"
-                      >
-                        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between mb-3 gap-3">
-                          <div className="flex-1">
-                            <h3 className="font-medium text-gray-900 dark:text-white">
-                              {provider.name}
-                            </h3>
-                            <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-                              {provider.description}
-                            </p>
-                          </div>
-                          <a
-                            href={provider.website}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 text-sm font-medium whitespace-nowrap"
-                          >
-                            Get Key →
-                          </a>
-                        </div>
-
-                        <div className="space-y-3">
-                          <div className="relative">
-                            <input
-                              type="password"
-                              value={apiKeys[provider.id]}
-                              onChange={(e) =>
-                                handleApiKeyChange(provider.id, e.target.value)
-                              }
-                              placeholder={provider.placeholder}
-                              className="w-full p-3 bg-transparent text-gray-900 dark:text-white focus:outline-none transition-colors font-mono text-sm"
-                              autoComplete="new-password"
-                              autoCorrect="off"
-                              autoCapitalize="off"
-                              spellCheck="false"
-                              data-form-type="other"
-                              data-lpignore="true"
-                              data-1p-ignore="true"
-                              name={`api-key-${provider.id}-${Math.random()}`}
-                            />
-                            <div className="border-b border-gray-300 dark:border-gray-600"></div>
-                          </div>
-
-                          <div className="flex flex-col sm:flex-row gap-2">
-                            <button
-                              onClick={() => handleSaveApiKey(provider.id)}
-                              disabled={!apiKeys[provider.id].trim()}
-                              className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white py-2 px-3 rounded-lg text-sm font-medium transition-colors"
-                            >
-                              Save
-                            </button>
-                            {apiKeys[provider.id] && (
-                              <button
-                                onClick={() => handleRemoveApiKey(provider.id)}
-                                className="text-red-500 hover:text-red-700 py-2 px-3 text-sm font-medium transition-colors"
-                              >
-                                Remove
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-
-                  <div className="text-xs text-gray-500 dark:text-gray-400 space-y-1 mt-6">
-                    <p>• API keys are encrypted and stored securely</p>
-                    <p>• Keys are only used to make requests on your behalf</p>
-                    <p>• You can remove or update your keys at any time</p>
-                  </div>
-                </div>
-              </TabsContent>
-
-              <TabsContent value="attachments" className="mt-6 sm:mt-8">
-                <div className="space-y-6">
-                  <div className="pb-4 border-b border-gray-200 dark:border-gray-700">
-                    <h2 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-white mb-2">
-                      Generated Images
-                    </h2>
-                    <p className="text-sm text-gray-600 dark:text-gray-400">
-                      View and download all the images you've generated in your conversations.
-                    </p>
-                  </div>
-
-                  {loadingImages ? (
-                    <div className="flex items-center justify-center py-12">
-                      <Loader2 className="w-8 h-8 animate-spin text-gray-600 dark:text-gray-400" />
-                    </div>
-                  ) : (
-                    <>
-                      {/* Images Statistics */}
-                      {userImages.length > 0 && (
-                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
-                          <div className="bg-white dark:bg-gray-800 p-4 rounded-lg border border-gray-200 dark:border-gray-700">
-                            <div className="text-2xl font-bold text-blue-600 dark:text-blue-400">
-                              {imagesStats.total_images}
-                            </div>
-                            <div className="text-sm text-gray-600 dark:text-gray-400">
-                              Total Images
-                            </div>
-                          </div>
-                          <div className="bg-white dark:bg-gray-800 p-4 rounded-lg border border-gray-200 dark:border-gray-700">
-                            <div className="text-2xl font-bold text-green-600 dark:text-green-400">
-                              {userImages.filter(img => new Date(img.created_at) > new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)).length}
-                            </div>
-                            <div className="text-sm text-gray-600 dark:text-gray-400">
-                              This Week
-                            </div>
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Image Gallery */}
-                      <ImageGallery images={userImages} />
-                    </>
-                  )}
-                </div>
-              </TabsContent>
-
-              <TabsContent value="contact" className="mt-6 sm:mt-8">
-                <div className="space-y-6">
-                  <div className="pb-4 border-b border-gray-200 dark:border-gray-700">
-                    <h2 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-white mb-2">
-                      Contact Support
-                    </h2>
-                    <p className="text-sm text-gray-600 dark:text-gray-400">
-                      Get help from our support team. We'll respond as quickly
-                      as possible.
-                    </p>
-                  </div>
-
-                  <div className="space-y-6">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
-                        Subject
-                      </label>
-                      <div className="relative">
-                        <input
-                          className="w-full p-3 sm:p-4 bg-transparent text-gray-900 dark:text-white focus:outline-none transition-colors"
-                          placeholder="How can we help?"
-                        />
-                        <div className="border-b border-gray-300 dark:border-gray-600"></div>
-                      </div>
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
-                        Message
-                      </label>
-                      <div className="relative">
-                        <textarea
-                          className="w-full p-3 sm:p-4 bg-transparent text-gray-900 dark:text-white focus:outline-none transition-colors resize-none"
-                          rows={6}
-                          placeholder="Describe your issue or question..."
-                        />
-                        <div className="border-b border-gray-300 dark:border-gray-600"></div>
-                      </div>
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
-                        Priority
-                      </label>
-                      <div className="relative">
-                        <select className="w-full p-3 sm:p-4 bg-transparent text-gray-900 dark:text-white focus:outline-none transition-colors">
-                          <option>Low</option>
-                          <option>Medium</option>
-                          <option>High</option>
-                        </select>
-                        <div className="border-b border-gray-300 dark:border-gray-600"></div>
-                      </div>
-                    </div>
-                  </div>
-
-                  <button className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-white py-3 px-4 rounded-lg font-medium transition-colors">
-                    Send Message
-                  </button>
-                </div>
-              </TabsContent>
-            </Tabs>
           </div>
         </div>
       </div>
