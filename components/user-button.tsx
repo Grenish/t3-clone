@@ -38,7 +38,6 @@ export function UserButton({ isPro = false }: UserButtonProps) {
     router.push("/login");
   };
 
-  // Extract user data from the auth user
   const userData: UserData = React.useMemo(() => {
     if (!user) return {};
 
@@ -68,7 +67,6 @@ export function UserButton({ isPro = false }: UserButtonProps) {
     );
   }
 
-  // Show sign in button if no user
   if (!user) {
     return (
       <Button
