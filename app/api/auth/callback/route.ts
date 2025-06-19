@@ -28,19 +28,60 @@ export async function GET(request: NextRequest) {
     
     if (!error) {
       const forwardedHost = request.headers.get('x-forwarded-host') // original origin before load balancer
+      const forwardedProto = request.headers.get('x-forwarded-proto') || 'https'
+      const host = request.headers.get('host')
       const isLocalEnv = process.env.NODE_ENV === 'development'
       
+      let redirectUrl: string
+      
       if (isLocalEnv) {
-        // We can trust localhost
-        return NextResponse.redirect(`${origin}${next}`)
+        // Trust localhost
+        redirectUrl = `${origin}${next}`
       } else if (forwardedHost) {
-        return NextResponse.redirect(`https://${forwardedHost}${next}`)
+        // Use forwarded host (from load balancer)
+        redirectUrl = `${forwardedProto}://${forwardedHost}${next}`
+      } else if (host && !host.includes('localhost') && !host.includes('127.0.0.1')) {
+        // Use the host header if it's not localhost
+        redirectUrl = `https://${host}${next}`
       } else {
-        return NextResponse.redirect(`${origin}${next}`)
+        // Fallback to environment variable or origin
+        const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || process.env.VERCEL_URL
+        if (siteUrl) {
+          const baseUrl = siteUrl.startsWith('http') ? siteUrl : `https://${siteUrl}`
+          redirectUrl = `${baseUrl}${next}`
+        } else {
+          redirectUrl = `${origin}${next}`
+        }
       }
+      
+      return NextResponse.redirect(redirectUrl)
     }
   }
 
   // Return the user to an error page with instructions
-  return NextResponse.redirect(`${origin}/auth/auth-code-error`)
+  // Use the same logic for error redirect
+  const forwardedHost = request.headers.get('x-forwarded-host')
+  const forwardedProto = request.headers.get('x-forwarded-proto') || 'https'
+  const host = request.headers.get('host')
+  const isLocalEnv = process.env.NODE_ENV === 'development'
+  
+  let errorRedirectUrl: string
+  
+  if (isLocalEnv) {
+    errorRedirectUrl = `${origin}/auth/auth-code-error`
+  } else if (forwardedHost) {
+    errorRedirectUrl = `${forwardedProto}://${forwardedHost}/auth/auth-code-error`
+  } else if (host && !host.includes('localhost') && !host.includes('127.0.0.1')) {
+    errorRedirectUrl = `https://${host}/auth/auth-code-error`
+  } else {
+    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || process.env.VERCEL_URL
+    if (siteUrl) {
+      const baseUrl = siteUrl.startsWith('http') ? siteUrl : `https://${siteUrl}`
+      errorRedirectUrl = `${baseUrl}/auth/auth-code-error`
+    } else {
+      errorRedirectUrl = `${origin}/auth/auth-code-error`
+    }
+  }
+  
+  return NextResponse.redirect(errorRedirectUrl)
 }
